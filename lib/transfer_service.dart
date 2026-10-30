@@ -168,7 +168,13 @@ abstract class KeyValueStore {
 
 class SecureKeyValueStore implements KeyValueStore {
   SecureKeyValueStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _storage =
+          storage ??
+          (Platform.isMacOS
+              ? const FlutterSecureStorage(
+                  mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+                )
+              : const FlutterSecureStorage());
   final FlutterSecureStorage _storage;
 
   @override
@@ -311,7 +317,9 @@ class TransferService {
         );
     if (!await dir.exists()) return;
     await for (final entry in dir.list()) {
-      if (entry is File && _temporaryFileSuffix.hasMatch(entry.path)) await entry.delete();
+      if (entry is File && _temporaryFileSuffix.hasMatch(entry.path)) {
+        await entry.delete();
+      }
     }
   }
 
@@ -446,7 +454,10 @@ class TransferService {
     if (!await dir.exists()) return [];
     final files = await dir
         .list()
-        .where((entry) => entry is File && !_temporaryFileSuffix.hasMatch(entry.path))
+        .where(
+          (entry) =>
+              entry is File && !_temporaryFileSuffix.hasMatch(entry.path),
+        )
         .cast<File>()
         .toList();
     files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
