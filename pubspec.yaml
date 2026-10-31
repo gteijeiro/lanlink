@@ -35,7 +35,7 @@ dependencies:
   crypto: ^3.0.6
   file_selector: ^1.1.0
   flutter_secure_storage: ^11.2.0
-  mobile_scanner: ^7.4.2
+  mobile_scanner: ^7.4.3
   path_provider: ^2.1.5
   qr_flutter: ^4.1.0
   share_plus: ^13.3.1
