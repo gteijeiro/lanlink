@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as hashing;
 import 'package:cryptography/cryptography.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -22,6 +23,60 @@ String _randomUrlSafe(int count) {
 
 List<int> _decode64(String value) =>
     base64Url.decode(base64Url.normalize(value));
+
+String friendlyDeviceName(String hostname, {String fallback = 'Dispositivo'}) {
+  final name = hostname
+      .replaceFirst(RegExp(r'\.local\.?$', caseSensitive: false), '')
+      .replaceAll(RegExp(r'[-_]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  return name.isEmpty ||
+          name.toLowerCase() == 'localhost' ||
+          name.toLowerCase() == 'unknown'
+      ? fallback
+      : name;
+}
+
+Future<String> _systemDeviceName() async {
+  final fallback = Platform.isMacOS
+      ? 'Mac'
+      : Platform.isIOS
+      ? 'iPhone'
+      : Platform.isAndroid
+      ? 'Android'
+      : Platform.isWindows
+      ? 'PC Windows'
+      : 'Equipo Linux';
+  try {
+    final info = DeviceInfoPlugin();
+    if (Platform.isMacOS) {
+      return friendlyDeviceName(
+        (await info.macOsInfo).computerName,
+        fallback: fallback,
+      );
+    }
+    if (Platform.isAndroid) {
+      final android = await info.androidInfo;
+      final modelName = friendlyDeviceName(
+        '${android.brand} ${android.model}',
+        fallback: fallback,
+      );
+      return friendlyDeviceName(android.name, fallback: modelName);
+    }
+    if (Platform.isIOS) {
+      return friendlyDeviceName((await info.iosInfo).name, fallback: fallback);
+    }
+    if (Platform.isWindows) {
+      return friendlyDeviceName(
+        (await info.windowsInfo).computerName,
+        fallback: fallback,
+      );
+    }
+  } catch (_) {
+    // The network hostname remains available when native device info fails.
+  }
+  return friendlyDeviceName(Platform.localHostname, fallback: fallback);
+}
 
 class Peer {
   Peer({
@@ -306,9 +361,8 @@ class TransferService {
     visibleOnLan = await _storage.read('visible-on-lan') == 'true';
     deviceName =
         identityName ??
-        (Platform.localHostname.isEmpty
-            ? 'Dispositivo'
-            : Platform.localHostname);
+        await _storage.read('device-name') ??
+        await _systemDeviceName();
     final peerFile = File('${_supportDirectory!.path}/peers.json');
     if (await peerFile.exists()) {
       final rows = jsonDecode(await peerFile.readAsString()) as List;
@@ -383,6 +437,18 @@ class TransferService {
   Future<void> setVisibleOnLan(bool value) async {
     await _storage.write('visible-on-lan', value ? 'true' : 'false');
     visibleOnLan = value;
+  }
+
+  Future<void> setDeviceName(String value) async {
+    final name = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (name.isEmpty ||
+        name.length > 100 ||
+        name.contains(RegExp(r'[\x00-\x1F\x7F]'))) {
+      throw const FormatException('Escribí un nombre de 1 a 100 caracteres.');
+    }
+    await _storage.write('device-name', name);
+    deviceName = name;
+    await refreshInvitation();
   }
 
   Invitation get invitation => _invitation!;

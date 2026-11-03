@@ -25,6 +25,47 @@ class MemoryStore implements KeyValueStore {
 }
 
 void main() {
+  test('El nombre de red se muestra en un formato legible', () {
+    expect(friendlyDeviceName('MacBook-Pro.local'), 'MacBook Pro');
+    expect(friendlyDeviceName('equipo_trabajo.LOCAL.'), 'equipo trabajo');
+    expect(friendlyDeviceName('localhost', fallback: 'Android'), 'Android');
+  });
+
+  test('El nombre editado se anuncia y persiste al reiniciar', () async {
+    final root = await Directory.systemTemp.createTemp('lanlink-name-test-');
+    final storage = MemoryStore();
+    final support = Directory('${root.path}/support');
+    final first = TransferService(
+      storage: storage,
+      listenPort: 0,
+      supportDirectory: support,
+      receivedDirectory: Directory('${root.path}/received'),
+      advertisedHosts: ['127.0.0.1'],
+      identityName: 'Inicial',
+    );
+    addTearDown(() async {
+      await first.dispose();
+      await root.delete(recursive: true);
+    });
+    await first.start();
+    await first.setDeviceName('  Mi   Mac  ');
+    expect(first.deviceName, 'Mi Mac');
+    expect(first.invitation.name, 'Mi Mac');
+    await expectLater(first.setDeviceName('  '), throwsFormatException);
+    await first.dispose();
+
+    final second = TransferService(
+      storage: storage,
+      listenPort: 0,
+      supportDirectory: support,
+      receivedDirectory: Directory('${root.path}/received'),
+      advertisedHosts: ['127.0.0.1'],
+    );
+    addTearDown(second.dispose);
+    await second.start();
+    expect(second.deviceName, 'Mi Mac');
+  });
+
   test('Un anuncio Bonjour válido permite conectar sin QR', () {
     final service = BonsoirService(
       name: 'LanLink equipo-1',

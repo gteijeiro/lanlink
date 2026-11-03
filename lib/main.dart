@@ -278,6 +278,54 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _editDeviceName() async {
+    final controller = TextEditingController(text: _service.deviceName);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Nombre de este dispositivo'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 100,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Nombre visible'),
+            onChanged: (_) => setDialogState(() {}),
+            onSubmitted: (_) {
+              if (controller.text.trim().isNotEmpty) {
+                Navigator.pop(context, controller.text);
+              }
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: controller.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(context, controller.text),
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.trim() == _service.deviceName) return;
+    try {
+      await _service.setDeviceName(name);
+      if (mounted) {
+        setState(() {});
+        _showMessage('Nombre actualizado.');
+      }
+    } catch (error) {
+      _showMessage(error.toString());
+    }
+  }
+
   Future<void> _send(Peer peer) async {
     if (_busy) return;
     try {
@@ -309,7 +357,10 @@ class _HomePageState extends State<HomePage> {
         final location = await getSaveLocation(
           suggestedName: file.uri.pathSegments.last,
         );
-        if (location != null) await XFile(file.path).saveTo(location.path);
+        if (location != null) {
+          await XFile(file.path).saveTo(location.path);
+          _showMessage('Archivo guardado en ${location.path}.');
+        }
       }
     } catch (error) {
       _showMessage(error.toString());
@@ -358,7 +409,16 @@ class _HomePageState extends State<HomePage> {
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                             const SizedBox(height: 5),
-                            Text(_service.deviceName),
+                            Row(
+                              children: [
+                                Expanded(child: Text(_service.deviceName)),
+                                IconButton(
+                                  tooltip: 'Editar nombre',
+                                  onPressed: _editDeviceName,
+                                  icon: const Icon(Icons.edit_outlined),
+                                ),
+                              ],
+                            ),
                             SwitchListTile.adaptive(
                               contentPadding: EdgeInsets.zero,
                               title: const Text('Visible en la red'),

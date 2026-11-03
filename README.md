@@ -11,6 +11,7 @@ La cámara para leer QR funciona en Android, iOS y macOS. En Windows y Linux se 
 ## Uso
 
 1. Instalá y abrí LanLink en los dos dispositivos, conectados a la misma red Wi-Fi o Ethernet.
+   LanLink propone un nombre visible a partir del equipo. Podés cambiarlo con el lápiz junto a **Este dispositivo**; el cambio se guarda para los próximos inicios y anuncios en la red.
 2. Para aparecer en otros equipos, activá **Visible en la red**. La opción queda guardada y solo anuncia el equipo mientras LanLink está abierto. Viene desactivada inicialmente.
 3. En el otro equipo, elegí **Conectar** en **Disponibles en mi red**. También podés seguir usando **Mostrar mi QR** y **Escanear QR**.
 4. Aceptá el emparejamiento en el dispositivo receptor.
