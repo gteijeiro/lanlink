@@ -15,7 +15,9 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>LanLink conecta tus dispositivos para transferir archivos directamente por la red local.</string>
+	<string>LanLink encuentra dispositivos visibles y transfiere archivos directamente por la red local.</string>
+	<key>NSBonjourServices</key>
+	<array><string>_lanlink._tcp</string></array>
 	<key>NSAppTransportSecurity</key>
 	<dict><key>NSAllowsLocalNetworking</key><true/></dict>
 	<key>CFBundleExecutable</key>

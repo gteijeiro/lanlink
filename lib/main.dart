@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
@@ -7,6 +8,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'discovery_service.dart';
 import 'transfer_service.dart';
 
 void main() {
@@ -38,10 +40,12 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final TransferService _service = TransferService();
+  DiscoveryService? _discovery;
   final TextEditingController _linkController = TextEditingController();
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  String? _discoveryError;
   TransferProgress? _progress;
 
   @override
@@ -61,10 +65,59 @@ class _HomePageState extends State<HomePage> {
   Future<void> _start() async {
     try {
       await _service.start();
+      final discovery = DiscoveryService(_service.deviceId);
+      discovery.onChanged = () {
+        if (mounted) setState(() {});
+      };
+      discovery.onError = (error) {
+        if (mounted) setState(() => _discoveryError = error.toString());
+      };
+      _discovery = discovery;
+      _service.onInvitationChanged = (invitation) {
+        if (_service.visibleOnLan) {
+          unawaited(
+            discovery
+                .advertise(invitation, _service.nearbyPublicKey)
+                .catchError((Object error) {
+                  if (mounted) {
+                    setState(() => _discoveryError = error.toString());
+                  }
+                }),
+          );
+        }
+      };
+      _service.onNearbyKeyChanged = () {
+        if (_service.visibleOnLan) {
+          unawaited(
+            discovery
+                .advertise(_service.invitation, _service.nearbyPublicKey)
+                .catchError((Object error) {
+                  if (mounted) {
+                    setState(() => _discoveryError = error.toString());
+                  }
+                }),
+          );
+        }
+      };
+      unawaited(_startDiscovery(discovery));
     } catch (error) {
       _error = error.toString();
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _startDiscovery(DiscoveryService discovery) async {
+    try {
+      await discovery.start();
+      if (_service.visibleOnLan) {
+        await discovery.advertise(
+          _service.invitation,
+          _service.nearbyPublicKey,
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _discoveryError = error.toString());
+    }
   }
 
   Future<bool> _confirmPair(PairRequest request) async {
@@ -74,9 +127,7 @@ class _HomePageState extends State<HomePage> {
           barrierDismissible: false,
           builder: (context) => AlertDialog(
             title: const Text('Emparejar dispositivo'),
-            content: Text(
-              '${request.name} leyó tu QR y quiere conectarse. ¿Lo aceptás?',
-            ),
+            content: Text('${request.name} quiere conectarse. ¿Lo aceptás?'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -191,17 +242,39 @@ class _HomePageState extends State<HomePage> {
     if (value != null) await _pair(value);
   }
 
-  Future<void> _pair(String value) async {
+  Future<void> _pair(String value) => _runPair(() => _service.pair(value));
+
+  Future<void> _pairNearby(NearbyInvitation invitation) =>
+      _runPair(() => _service.pairNearby(invitation));
+
+  Future<void> _runPair(Future<void> Function() action) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await _service.pair(value);
+      await action();
       _linkController.clear();
       _showMessage('Dispositivos emparejados. Ya podés enviar archivos.');
     } catch (error) {
       _showMessage(error.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _setVisibleOnLan(bool value) async {
+    try {
+      if (value) {
+        await _discovery?.advertise(
+          _service.invitation,
+          _service.nearbyPublicKey,
+        );
+      } else {
+        await _discovery?.advertise(null, null);
+      }
+      await _service.setVisibleOnLan(value);
+      if (mounted) setState(() => _discoveryError = null);
+    } catch (error) {
+      if (mounted) _showMessage('No se pudo cambiar la visibilidad: $error');
     }
   }
 
@@ -253,6 +326,12 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final peers = _service.peers.values.toList()
       ..sort((a, b) => a.name.compareTo(b.name));
+    final nearby =
+        _discovery?.devices.values
+            .where((device) => !_service.peers.containsKey(device.id))
+            .toList() ??
+        [];
+    nearby.sort((a, b) => a.name.compareTo(b.name));
     return Scaffold(
       appBar: AppBar(title: const Text('LanLink')),
       body: Center(
@@ -280,6 +359,17 @@ class _HomePageState extends State<HomePage> {
                             ),
                             const SizedBox(height: 5),
                             Text(_service.deviceName),
+                            SwitchListTile.adaptive(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Visible en la red'),
+                              subtitle: const Text(
+                                'Otros equipos con LanLink podrán encontrarte mientras la app esté abierta.',
+                              ),
+                              value: _service.visibleOnLan,
+                              onChanged: _discovery == null
+                                  ? null
+                                  : _setVisibleOnLan,
+                            ),
                             const SizedBox(height: 14),
                             Wrap(
                               spacing: 10,
@@ -328,6 +418,37 @@ class _HomePageState extends State<HomePage> {
                       onSubmitted: _busy ? null : _pair,
                     ),
                     const SizedBox(height: 22),
+                    Text(
+                      'Disponibles en mi red',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    if (_discoveryError != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          'No se pudo buscar dispositivos: $_discoveryError',
+                        ),
+                      )
+                    else if (nearby.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 18),
+                        child: Text('No hay otros equipos visibles por ahora.'),
+                      ),
+                    for (final device in nearby)
+                      Card(
+                        child: ListTile(
+                          leading: const CircleAvatar(child: Icon(Icons.wifi)),
+                          title: Text(device.name),
+                          subtitle: const Text('Disponible en la red local'),
+                          trailing: FilledButton(
+                            onPressed: _busy
+                                ? null
+                                : () => _pairNearby(device.invitation),
+                            child: const Text('Conectar'),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
                     Text(
                       'Mis dispositivos',
                       style: Theme.of(context).textTheme.titleLarge,
@@ -445,7 +566,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _linkController.dispose();
-    _service.dispose();
+    unawaited(_discovery?.dispose());
+    unawaited(_service.dispose());
     super.dispose();
   }
 }

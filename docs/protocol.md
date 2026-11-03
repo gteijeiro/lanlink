@@ -1,12 +1,14 @@
 # Protocolo LanLink v1
 
-Todos los sistemas ejecutan el mismo código de protocolo en Dart. Un dispositivo escucha en TCP `47829` y anuncia sus direcciones IPv4 en un QR `lanlink://pair/<base64url-json>`. El JSON incluye versión, identificador de dispositivo, nombre, direcciones, puerto y una clave aleatoria de invitación de 256 bits.
+Todos los sistemas ejecutan el mismo código de protocolo en Dart. Un dispositivo escucha en TCP `47829` y anuncia sus direcciones IPv4 en un QR `lanlink://pair/<base64url-json>`. El JSON incluye versión, identificador de dispositivo, nombre, direcciones, puerto y una clave aleatoria de invitación de 256 bits. Cuando el usuario activa **Visible en la red**, la app también anuncia `_lanlink._tcp` mediante Bonjour/mDNS con identificador, nombre y una clave pública X25519 temporal en el registro TXT. Las otras instancias buscan ese servicio y presentan los equipos encontrados.
 
 ## Emparejamiento
 
 El lector del QR envía `POST /pair` con su identificador, nombre, puerto y 32 bytes aleatorios, cifrados con AES-256-GCM mediante la clave del QR. El anfitrión pide permiso al usuario. Si acepta, responde con su identificador, nombre y otros 32 bytes aleatorios, también cifrados. Ambos derivan la clave permanente del par con HMAC-SHA-256 sobre los dos valores aleatorios, los identificadores y un contexto de versión. La clave queda en el almacenamiento seguro del sistema. El anfitrión invalida la invitación después de aceptarla.
 
 El QR debe compartirse solo con el dispositivo que se desea vincular. Quien lo obtenga mientras está vigente podría solicitar emparejamiento, sujeto a la aceptación del anfitrión. El protocolo actual no ofrece secreto futuro si se registra el tráfico y más tarde se revela la clave del QR.
+
+En el emparejamiento sin QR, el solicitante genera otra clave X25519 temporal y envía su clave pública junto con una solicitud cifrada a `POST /pair-nearby`. Ambos calculan un secreto compartido que no se publica ni viaja por la red. El receptor confirma la solicitud y responde cifrado; cada lado deriva y guarda una clave propia del par. El receptor rota su clave pública temporal después de aceptar. El nombre del solicitante no constituye prueba de identidad: un atacante activo podría suplantar anuncios o interponerse en la conexión. Para redes que no sean de confianza, preferí el QR. Una futura versión debería añadir verificación mutua con un código corto antes de confiar en un nuevo dispositivo.
 
 ## Transferencia
 
@@ -22,5 +24,5 @@ El cuerpo de cada mensaje es JSON; los bytes cifrados se codifican con base64url
 - Solo IPv4 y red local alcanzable; el QR puede llevar varias direcciones y el lector intenta conectarse a cada una.
 - Un archivo por envío, hasta 16 GiB.
 - La app debe estar abierta en ambos dispositivos.
-- No hay reanudación después de cerrar la app ni descubrimiento automático de una nueva IP.
+- No hay reanudación después de cerrar la app ni actualización automática de la IP de un par ya guardado; si cambia, hay que volver a emparejarlo.
 - La recepción se escribe primero a un archivo `.part`; si una transferencia se interrumpe, el temporal se elimina al volver a abrir la app.

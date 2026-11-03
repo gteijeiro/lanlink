@@ -122,6 +122,22 @@ class Invitation {
   }
 }
 
+class NearbyInvitation {
+  const NearbyInvitation({
+    required this.id,
+    required this.name,
+    required this.hosts,
+    required this.port,
+    required this.publicKey,
+  });
+
+  final String id;
+  final String name;
+  final List<String> hosts;
+  final int port;
+  final String publicKey;
+}
+
 class PairRequest {
   PairRequest(this.name);
   final String name;
@@ -265,16 +281,21 @@ class TransferService {
     ..connectionTimeout = const Duration(seconds: 8);
   HttpServer? _server;
   Invitation? _invitation;
+  KeyPair? _nearbyKeyPair;
   bool _pairingBusy = false;
   Directory? _supportDirectory;
   late String deviceId;
   late String deviceName;
+  late String nearbyPublicKey;
+  bool visibleOnLan = false;
   int get port => _server?.port ?? 0;
 
   Future<bool> Function(PairRequest request)? onPairRequest;
   Future<bool> Function(FileOffer offer)? onFileOffer;
   void Function(TransferProgress progress)? onProgress;
   void Function()? onPeersChanged;
+  void Function(Invitation invitation)? onInvitationChanged;
+  void Function()? onNearbyKeyChanged;
 
   Future<void> start() async {
     _supportDirectory =
@@ -282,6 +303,7 @@ class TransferService {
     await _supportDirectory!.create(recursive: true);
     deviceId = await _storage.read('device-id') ?? _randomUrlSafe(16);
     await _storage.write('device-id', deviceId);
+    visibleOnLan = await _storage.read('visible-on-lan') == 'true';
     deviceName =
         identityName ??
         (Platform.localHostname.isEmpty
@@ -307,6 +329,15 @@ class TransferService {
     _server!.listen(_handle, onError: (_) {});
     await _clearInterruptedFiles();
     await refreshInvitation();
+    await _refreshNearbyKey();
+  }
+
+  Future<void> _refreshNearbyKey() async {
+    _nearbyKeyPair = await X25519().newKeyPair();
+    final publicKey =
+        await _nearbyKeyPair!.extractPublicKey() as SimplePublicKey;
+    nearbyPublicKey = base64Url.encode(publicKey.bytes).replaceAll('=', '');
+    onNearbyKeyChanged?.call();
   }
 
   Future<void> _clearInterruptedFiles() async {
@@ -345,13 +376,99 @@ class TransferService {
       port: port,
       secret: _randomUrlSafe(32),
     );
+    onInvitationChanged?.call(_invitation!);
     return _invitation!;
+  }
+
+  Future<void> setVisibleOnLan(bool value) async {
+    await _storage.write('visible-on-lan', value ? 'true' : 'false');
+    visibleOnLan = value;
   }
 
   Invitation get invitation => _invitation!;
 
-  Future<void> pair(String qrValue) async {
-    final invite = Invitation.fromQr(qrValue);
+  Future<void> pair(String qrValue) =>
+      pairInvitation(Invitation.fromQr(qrValue));
+
+  Future<void> pairNearby(NearbyInvitation invite) async {
+    if (invite.id == deviceId) {
+      throw StateError('No podés emparejar un dispositivo consigo mismo.');
+    }
+    final remoteBytes = _decode64(invite.publicKey);
+    if (remoteBytes.length != 32 || invite.hosts.isEmpty) {
+      throw const FormatException('Anuncio de red inválido.');
+    }
+    final pair = await X25519().newKeyPair();
+    final publicKey = await pair.extractPublicKey();
+    final secret = await _nearbySharedSecret(pair, remoteBytes);
+    final clientRandom = _randomUrlSafe(32);
+    final request = await CryptoEnvelope.encryptJson(
+      {
+        'id': deviceId,
+        'name': deviceName,
+        'random': clientRandom,
+        'port': port,
+      },
+      secret,
+      aad: 'pair-nearby-request-v1',
+    );
+    Object? lastError;
+    for (final host in invite.hosts) {
+      try {
+        final response = await _postJson(host, invite.port, '/pair-nearby', {
+          'publicKey': base64Url.encode(publicKey.bytes),
+          'box': request,
+        }, timeout: const Duration(minutes: 2));
+        final result = await CryptoEnvelope.decryptJson(
+          response,
+          secret,
+          aad: 'pair-nearby-response-v1',
+        );
+        if (result['id'] != invite.id) {
+          throw const FormatException(
+            'El dispositivo no coincide con el anuncio.',
+          );
+        }
+        final key = await _derivePeerKey(
+          secret,
+          clientRandom,
+          result['random'] as String,
+          deviceId,
+          invite.id,
+        );
+        await _savePeer(
+          Peer(
+            id: invite.id,
+            name: result['name'] as String,
+            host: host,
+            port: invite.port,
+          ),
+          key,
+        );
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw StateError('No se pudo emparejar: $lastError');
+  }
+
+  Future<String> _nearbySharedSecret(
+    KeyPair ownPair,
+    List<int> remoteBytes,
+  ) async {
+    final shared = await X25519().sharedSecretKey(
+      keyPair: ownPair,
+      remotePublicKey: SimplePublicKey(remoteBytes, type: KeyPairType.x25519),
+    );
+    final bytes = await shared.extractBytes();
+    if (bytes.every((byte) => byte == 0)) {
+      throw const FormatException('Clave pública inválida.');
+    }
+    return base64Url.encode(bytes);
+  }
+
+  Future<void> pairInvitation(Invitation invite) async {
     if (invite.id == deviceId) {
       throw StateError('No podés emparejar un dispositivo consigo mismo.');
     }
@@ -575,6 +692,7 @@ class TransferService {
         final body = await _readJson(request);
         final result = switch (request.uri.path) {
           '/pair' => await _handlePair(body, request),
+          '/pair-nearby' => await _handleNearbyPair(body, request),
           '/offer' => await _handleOffer(body),
           '/chunk' => await _handleChunk(body),
           _ => throw const FormatException('Ruta desconocida.'),
@@ -648,6 +766,72 @@ class TransferService {
         invite.secret,
         aad: 'pair-response-v1',
       );
+    } finally {
+      _pairingBusy = false;
+    }
+  }
+
+  Future<Map<String, Object?>> _handleNearbyPair(
+    Map<String, dynamic> body,
+    HttpRequest request,
+  ) async {
+    if (!visibleOnLan || _nearbyKeyPair == null) {
+      throw StateError('Este equipo no está visible en la red.');
+    }
+    if (_pairingBusy) throw StateError('Ya hay un emparejamiento en curso.');
+    final remoteBytes = _decode64(body['publicKey'] as String);
+    if (remoteBytes.length != 32) {
+      throw const FormatException('Clave pública inválida.');
+    }
+    _pairingBusy = true;
+    try {
+      final secret = await _nearbySharedSecret(_nearbyKeyPair!, remoteBytes);
+      final data = await CryptoEnvelope.decryptJson(
+        (body['box'] as Map).cast<String, dynamic>(),
+        secret,
+        aad: 'pair-nearby-request-v1',
+      );
+      final scannerId = data['id'] as String;
+      final scannerName = data['name'] as String;
+      final scannerRandom = data['random'] as String;
+      final scannerPort = data['port'] as int;
+      if (scannerId.isEmpty ||
+          scannerId.length > 80 ||
+          scannerName.isEmpty ||
+          scannerName.length > 100 ||
+          _decode64(scannerRandom).length != 32 ||
+          scannerPort < 1 ||
+          scannerPort > 65535) {
+        throw const FormatException('Solicitud de emparejamiento inválida.');
+      }
+      final approved =
+          await (onPairRequest?.call(PairRequest(scannerName)) ??
+              Future.value(false));
+      if (!approved) throw StateError('Emparejamiento rechazado.');
+      final hostRandom = _randomUrlSafe(32);
+      final key = await _derivePeerKey(
+        secret,
+        scannerRandom,
+        hostRandom,
+        scannerId,
+        deviceId,
+      );
+      await _savePeer(
+        Peer(
+          id: scannerId,
+          name: scannerName,
+          host: request.connectionInfo!.remoteAddress.address,
+          port: scannerPort,
+        ),
+        key,
+      );
+      final response = await CryptoEnvelope.encryptJson(
+        {'id': deviceId, 'name': deviceName, 'random': hostRandom},
+        secret,
+        aad: 'pair-nearby-response-v1',
+      );
+      await _refreshNearbyKey();
+      return response;
     } finally {
       _pairingBusy = false;
     }

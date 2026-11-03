@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bonsoir/bonsoir.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lanlink/discovery_service.dart';
 import 'package:lanlink/transfer_service.dart';
 
 class MemoryStore implements KeyValueStore {
@@ -23,6 +25,31 @@ class MemoryStore implements KeyValueStore {
 }
 
 void main() {
+  test('Un anuncio Bonjour válido permite conectar sin QR', () {
+    final service = BonsoirService(
+      name: 'LanLink equipo-1',
+      type: lanLinkServiceType,
+      hostAddresses: ['192.168.1.8', '127.0.0.1', 'fe80::1'],
+      port: 47829,
+      attributes: {
+        'v': '$protocolVersion',
+        'id': 'equipo-1',
+        'name': 'Mi Mac',
+        'key': base64Url.encode(List<int>.filled(32, 4)),
+      },
+    );
+    final invitation = invitationFromService(service);
+    expect(invitation?.id, 'equipo-1');
+    expect(invitation?.name, 'Mi Mac');
+    expect(invitation?.hosts, ['192.168.1.8']);
+    expect(
+      invitationFromService(
+        service.copyWith(attributes: {...service.attributes, 'key': 'bad'}),
+      ),
+      isNull,
+    );
+  });
+
   test('El QR conserva las direcciones y rechaza otro protocolo', () {
     final invitation = Invitation(
       id: 'device-1',
@@ -70,7 +97,7 @@ void main() {
   );
 
   test(
-    'Dos dispositivos se emparejan por QR y transfieren un archivo completo',
+    'Dos dispositivos se emparejan sin QR y transfieren un archivo completo',
     () async {
       final root = await Directory.systemTemp.createTemp('lanlink-test-');
       final sender = TransferService(
@@ -96,9 +123,19 @@ void main() {
       });
       await sender.start();
       await receiver.start();
+      final nearbyInvite = NearbyInvitation(
+        id: receiver.deviceId,
+        name: receiver.deviceName,
+        hosts: ['127.0.0.1'],
+        port: receiver.port,
+        publicKey: receiver.nearbyPublicKey,
+      );
+      await expectLater(sender.pairNearby(nearbyInvite), throwsStateError);
+      expect(sender.peers, isEmpty);
+      await receiver.setVisibleOnLan(true);
       receiver.onPairRequest = (_) async => true;
       receiver.onFileOffer = (_) async => true;
-      await sender.pair(receiver.invitation.qrValue);
+      await sender.pairNearby(nearbyInvite);
       expect(sender.peers.containsKey(receiver.deviceId), true);
       expect(receiver.peers.containsKey(sender.deviceId), true);
 
