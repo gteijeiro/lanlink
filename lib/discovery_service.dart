@@ -24,6 +24,7 @@ class DiscoveryService {
   final String ownDeviceId;
   final Map<String, NearbyDevice> devices = {};
   final Map<String, String> _idsByServiceName = {};
+  final Map<String, NearbyInvitation> _invitationsByServiceName = {};
   BonsoirDiscovery? _discovery;
   StreamSubscription<BonsoirDiscoveryEvent>? _events;
   BonsoirBroadcast? _broadcast;
@@ -32,6 +33,13 @@ class DiscoveryService {
 
   void Function()? onChanged;
   void Function(Object error)? onError;
+
+  // Keep all candidates for a known ID. An unauthenticated mDNS record must
+  // not hide a legitimate address before the shared-key challenge verifies it.
+  List<NearbyInvitation> candidatesForPeer(String id) =>
+      _invitationsByServiceName.values
+          .where((invitation) => invitation.id == id)
+          .toList();
 
   Future<void> start() async {
     final discovery = BonsoirDiscovery(
@@ -90,7 +98,11 @@ class DiscoveryService {
         _upsert(event.service);
       case BonsoirDiscoveryServiceLostEvent():
         final id = _idsByServiceName.remove(event.service.name);
-        if (id != null && devices.remove(id) != null) onChanged?.call();
+        _invitationsByServiceName.remove(event.service.name);
+        if (id != null) {
+          _refreshDevice(id);
+          onChanged?.call();
+        }
       default:
         break;
     }
@@ -99,9 +111,23 @@ class DiscoveryService {
   void _upsert(BonsoirService service) {
     final invitation = invitationFromService(service);
     if (invitation == null || invitation.id == ownDeviceId) return;
+    final previousId = _idsByServiceName[service.name];
     _idsByServiceName[service.name] = invitation.id;
-    devices[invitation.id] = NearbyDevice(invitation);
+    _invitationsByServiceName[service.name] = invitation;
+    if (previousId != null && previousId != invitation.id) {
+      _refreshDevice(previousId);
+    }
+    _refreshDevice(invitation.id);
     onChanged?.call();
+  }
+
+  void _refreshDevice(String id) {
+    final candidates = candidatesForPeer(id);
+    if (candidates.isEmpty) {
+      devices.remove(id);
+    } else {
+      devices[id] = NearbyDevice(candidates.last);
+    }
   }
 
   Future<void> dispose() async {
@@ -111,6 +137,7 @@ class DiscoveryService {
     await advertise(null, null);
     devices.clear();
     _idsByServiceName.clear();
+    _invitationsByServiceName.clear();
   }
 }
 

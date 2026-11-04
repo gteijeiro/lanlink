@@ -87,9 +87,11 @@ class Peer {
   });
 
   final String id;
-  final String name;
+  String name;
   String host;
   int port;
+  // Never persisted: an address is trusted only after this session verifies it.
+  bool verified = false;
 
   Map<String, Object> toJson() => {
     'id': id,
@@ -231,6 +233,14 @@ class _IncomingFile {
   int offset = 0;
 }
 
+class _IdentityChallenge {
+  _IdentityChallenge(this.peerId, this.address);
+
+  final String peerId;
+  final String address;
+  final DateTime createdAt = DateTime.now();
+}
+
 abstract class KeyValueStore {
   Future<String?> read(String key);
   Future<void> write(String key, String value);
@@ -332,6 +342,7 @@ class TransferService {
   final Map<String, Peer> peers = {};
   final Map<String, String> _keys = {};
   final Map<String, _IncomingFile> _incoming = {};
+  final Map<String, _IdentityChallenge> _identityChallenges = {};
   final HttpClient _client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 8);
   HttpServer? _server;
@@ -339,6 +350,8 @@ class TransferService {
   KeyPair? _nearbyKeyPair;
   bool _pairingBusy = false;
   Directory? _supportDirectory;
+  Timer? _networkTimer;
+  bool _checkingNetwork = false;
   late String deviceId;
   late String deviceName;
   late String nearbyPublicKey;
@@ -384,6 +397,40 @@ class TransferService {
     await _clearInterruptedFiles();
     await refreshInvitation();
     await _refreshNearbyKey();
+    if (advertisedHosts == null) {
+      _networkTimer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => unawaited(_checkNetworkAddresses()),
+      );
+    }
+  }
+
+  Future<void> _checkNetworkAddresses() async {
+    if (_checkingNetwork || _invitation == null) return;
+    _checkingNetwork = true;
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      final addresses = interfaces
+          .expand((entry) => entry.addresses)
+          .map((address) => address.address)
+          .where((host) => !host.startsWith('169.254.'))
+          .toSet();
+      if (addresses.length != _invitation!.hosts.length ||
+          !addresses.containsAll(_invitation!.hosts)) {
+        for (final peer in peers.values) {
+          peer.verified = false;
+        }
+        onPeersChanged?.call();
+        await refreshInvitation();
+      }
+    } catch (_) {
+      // Transient interface changes are retried by the next poll.
+    } finally {
+      _checkingNetwork = false;
+    }
   }
 
   Future<void> _refreshNearbyKey() async {
@@ -460,6 +507,7 @@ class TransferService {
     if (invite.id == deviceId) {
       throw StateError('No podés emparejar un dispositivo consigo mismo.');
     }
+    _requireNewPeer(invite.id);
     final remoteBytes = _decode64(invite.publicKey);
     if (remoteBytes.length != 32 || invite.hosts.isEmpty) {
       throw const FormatException('Anuncio de red inválido.');
@@ -538,6 +586,7 @@ class TransferService {
     if (invite.id == deviceId) {
       throw StateError('No podés emparejar un dispositivo consigo mismo.');
     }
+    _requireNewPeer(invite.id);
     final clientRandom = _randomUrlSafe(32);
     final request = await CryptoEnvelope.encryptJson(
       {
@@ -605,9 +654,23 @@ class TransferService {
   }
 
   Future<void> _savePeer(Peer peer, String key) async {
+    _requireNewPeer(peer.id);
     await _storage.write('peer-${peer.id}', key);
     peers[peer.id] = peer;
     _keys[peer.id] = key;
+    await _persistPeers();
+  }
+
+  void _requireNewPeer(String id) {
+    if (peers.containsKey(id) || _keys.containsKey(id)) {
+      throw StateError(
+        'Este dispositivo ya está vinculado. Olvidalo en ambos equipos '
+        'si necesitás crear un vínculo nuevo.',
+      );
+    }
+  }
+
+  Future<void> _persistPeers() async {
     final file = File('${_supportDirectory!.path}/peers.json');
     await file.writeAsString(
       jsonEncode(peers.values.map((peer) => peer.toJson()).toList()),
@@ -619,13 +682,131 @@ class TransferService {
   Future<void> removePeer(String id) async {
     peers.remove(id);
     _keys.remove(id);
+    _identityChallenges.removeWhere((_, challenge) => challenge.peerId == id);
     await _storage.delete('peer-$id');
-    final file = File('${_supportDirectory!.path}/peers.json');
-    await file.writeAsString(
-      jsonEncode(peers.values.map((peer) => peer.toJson()).toList()),
-      flush: true,
+    await _persistPeers();
+  }
+
+  Future<void> reconnectKnownPeer(NearbyInvitation invite) async {
+    final peer = peers[invite.id];
+    final key = _keys[invite.id];
+    if (peer == null || key == null || invite.hosts.isEmpty) {
+      throw StateError('No hay un vínculo guardado con este dispositivo.');
+    }
+    Object? lastError;
+    for (final host in invite.hosts) {
+      try {
+        final start = await _postJson(host, invite.port, '/identify/start', {
+          'from': deviceId,
+          'to': peer.id,
+        }, timeout: const Duration(seconds: 5));
+        final serverNonce = start['nonce'] as String;
+        if (_decode64(serverNonce).length != 32) {
+          throw const FormatException('Desafío de identidad inválido.');
+        }
+        final clientNonce = _randomUrlSafe(32);
+        final proof = await _identityProof(key, [
+          'request',
+          deviceId,
+          peer.id,
+          serverNonce,
+          clientNonce,
+          deviceName,
+          port,
+        ]);
+        final response = await _postJson(
+          host,
+          invite.port,
+          '/identify/finish',
+          {
+            'from': deviceId,
+            'to': peer.id,
+            'serverNonce': serverNonce,
+            'clientNonce': clientNonce,
+            'name': deviceName,
+            'port': port,
+            'proof': proof,
+          },
+          timeout: const Duration(seconds: 5),
+        );
+        final remoteName = response['name'] as String;
+        final remotePort = response['port'] as int;
+        if (!_validIdentityName(remoteName) ||
+            remotePort != invite.port ||
+            !await _checkIdentityProof(key, [
+              'response',
+              deviceId,
+              peer.id,
+              serverNonce,
+              clientNonce,
+              remoteName,
+              remotePort,
+            ], response['proof'])) {
+          throw const FormatException('La identidad del equipo no coincide.');
+        }
+        if (!identical(peers[peer.id], peer) || _keys[peer.id] != key) {
+          throw StateError('El vínculo cambió durante la verificación.');
+        }
+        await _updatePeerAddress(peer, host, remotePort, remoteName);
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw StateError('No se pudo verificar el dispositivo: $lastError');
+  }
+
+  Future<String> _identityProof(String key, List<Object?> fields) async {
+    final mac = await Hmac.sha256().calculateMac(
+      utf8.encode(jsonEncode(['lanlink-identify-v1', ...fields])),
+      secretKey: SecretKey(_decode64(key)),
     );
-    onPeersChanged?.call();
+    return base64Url.encode(mac.bytes).replaceAll('=', '');
+  }
+
+  Future<bool> _checkIdentityProof(
+    String key,
+    List<Object?> fields,
+    Object? supplied,
+  ) async {
+    if (supplied is! String) return false;
+    try {
+      final actual = _decode64(supplied);
+      final expected = _decode64(await _identityProof(key, fields));
+      if (actual.length != expected.length) return false;
+      var difference = 0;
+      for (var i = 0; i < actual.length; i++) {
+        difference |= actual[i] ^ expected[i];
+      }
+      return difference == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _validIdentityName(String name) =>
+      name.isNotEmpty &&
+      name.length <= 100 &&
+      !name.contains(RegExp(r'[\x00-\x1F\x7F]'));
+
+  Future<void> _updatePeerAddress(
+    Peer peer,
+    String host,
+    int updatedPort,
+    String name,
+  ) async {
+    final changed =
+        peer.host != host || peer.port != updatedPort || peer.name != name;
+    final newlyVerified = !peer.verified;
+    peer.host = host;
+    peer.port = updatedPort;
+    peer.name = name;
+    peer.verified = true;
+    if (changed) {
+      await _persistPeers();
+    } else if (newlyVerified) {
+      onPeersChanged?.call();
+    }
   }
 
   Future<List<File>> receivedFiles() async {
@@ -732,7 +913,16 @@ class TransferService {
     request.headers.contentType = ContentType.json;
     request.add(utf8.encode(jsonEncode(body)));
     final response = await request.close().timeout(timeout);
-    final text = await utf8.decodeStream(response).timeout(timeout);
+    final bytes = await response
+        .fold<BytesBuilder>(BytesBuilder(copy: false), (buffer, chunk) {
+          if (buffer.length + chunk.length > maxMessageBytes) {
+            throw const FormatException('Respuesta demasiado grande.');
+          }
+          buffer.add(chunk);
+          return buffer;
+        })
+        .timeout(timeout);
+    final text = utf8.decode(bytes.takeBytes());
     if (response.statusCode != 200) {
       throw StateError('Error de red (${response.statusCode}): $text');
     }
@@ -759,6 +949,8 @@ class TransferService {
         final result = switch (request.uri.path) {
           '/pair' => await _handlePair(body, request),
           '/pair-nearby' => await _handleNearbyPair(body, request),
+          '/identify/start' => await _handleIdentityStart(body, request),
+          '/identify/finish' => await _handleIdentityFinish(body, request),
           '/offer' => await _handleOffer(body),
           '/chunk' => await _handleChunk(body),
           _ => throw const FormatException('Ruta desconocida.'),
@@ -804,6 +996,7 @@ class TransferService {
           scannerPort > 65535) {
         throw const FormatException('Solicitud de emparejamiento inválida.');
       }
+      _requireNewPeer(scannerId);
       final approved =
           await (onPairRequest?.call(PairRequest(scannerName)) ??
               Future.value(false));
@@ -870,6 +1063,7 @@ class TransferService {
           scannerPort > 65535) {
         throw const FormatException('Solicitud de emparejamiento inválida.');
       }
+      _requireNewPeer(scannerId);
       final approved =
           await (onPairRequest?.call(PairRequest(scannerName)) ??
               Future.value(false));
@@ -901,6 +1095,92 @@ class TransferService {
     } finally {
       _pairingBusy = false;
     }
+  }
+
+  Future<Map<String, Object?>> _handleIdentityStart(
+    Map<String, dynamic> body,
+    HttpRequest request,
+  ) async {
+    final peerId = body['from'];
+    if (peerId is! String ||
+        body['to'] != deviceId ||
+        !_keys.containsKey(peerId)) {
+      throw StateError('Dispositivo no vinculado.');
+    }
+    _identityChallenges.removeWhere(
+      (_, challenge) =>
+          DateTime.now().difference(challenge.createdAt) >
+          const Duration(seconds: 30),
+    );
+    if (_identityChallenges.length >= 64) {
+      _identityChallenges.remove(_identityChallenges.keys.first);
+    }
+    final nonce = _randomUrlSafe(32);
+    _identityChallenges[nonce] = _IdentityChallenge(
+      peerId,
+      request.connectionInfo!.remoteAddress.address,
+    );
+    return {'nonce': nonce};
+  }
+
+  Future<Map<String, Object?>> _handleIdentityFinish(
+    Map<String, dynamic> body,
+    HttpRequest request,
+  ) async {
+    final peerId = body['from'];
+    final serverNonce = body['serverNonce'];
+    final clientNonce = body['clientNonce'];
+    final name = body['name'];
+    final updatedPort = body['port'];
+    if (peerId is! String ||
+        serverNonce is! String ||
+        clientNonce is! String ||
+        name is! String ||
+        updatedPort is! int ||
+        body['to'] != deviceId ||
+        !_validIdentityName(name) ||
+        updatedPort < 1 ||
+        updatedPort > 65535 ||
+        _decode64(clientNonce).length != 32) {
+      throw const FormatException('Respuesta de identidad inválida.');
+    }
+    final challenge = _identityChallenges.remove(serverNonce);
+    final peer = peers[peerId];
+    final key = _keys[peerId];
+    if (challenge == null ||
+        challenge.peerId != peerId ||
+        challenge.address != request.connectionInfo!.remoteAddress.address ||
+        DateTime.now().difference(challenge.createdAt) >
+            const Duration(seconds: 30) ||
+        peer == null ||
+        key == null ||
+        !await _checkIdentityProof(key, [
+          'request',
+          peerId,
+          deviceId,
+          serverNonce,
+          clientNonce,
+          name,
+          updatedPort,
+        ], body['proof'])) {
+      throw StateError('No se pudo verificar la identidad.');
+    }
+    final responseProof = await _identityProof(key, [
+      'response',
+      peerId,
+      deviceId,
+      serverNonce,
+      clientNonce,
+      deviceName,
+      port,
+    ]);
+    await _updatePeerAddress(
+      peer,
+      request.connectionInfo!.remoteAddress.address,
+      updatedPort,
+      name,
+    );
+    return {'name': deviceName, 'port': port, 'proof': responseProof};
   }
 
   Future<Map<String, Object?>> _handleOffer(Map<String, dynamic> body) async {
@@ -1020,6 +1300,7 @@ class TransferService {
   }
 
   Future<void> dispose() async {
+    _networkTimer?.cancel();
     _client.close(force: true);
     await _server?.close(force: true);
   }

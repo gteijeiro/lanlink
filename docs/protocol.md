@@ -10,6 +10,14 @@ El QR debe compartirse solo con el dispositivo que se desea vincular. Quien lo o
 
 En el emparejamiento sin QR, el solicitante genera otra clave X25519 temporal y envía su clave pública junto con una solicitud cifrada a `POST /pair-nearby`. Ambos calculan un secreto compartido que no se publica ni viaja por la red. El receptor confirma la solicitud y responde cifrado; cada lado deriva y guarda una clave propia del par. El receptor rota su clave pública temporal después de aceptar. El nombre del solicitante no constituye prueba de identidad: un atacante activo podría suplantar anuncios o interponerse en la conexión. Para redes que no sean de confianza, preferí el QR. Una futura versión debería añadir verificación mutua con un código corto antes de confiar en un nuevo dispositivo.
 
+Un identificador ya vinculado no puede volver a emparejarse ni reemplazar su clave mientras siga guardado. Para renovar un vínculo perdido, el usuario debe olvidarlo explícitamente en ambos equipos.
+
+## Reconexión tras cambiar de red
+
+El anuncio mDNS aporta direcciones candidatas, pero no se considera una prueba de identidad. Para cada candidato con un identificador ya vinculado, el cliente pide un desafío aleatorio de 256 bits a `POST /identify/start`. En `POST /identify/finish` envía otro valor aleatorio de 256 bits y un HMAC-SHA-256 calculado con la clave secreta del par. El HMAC cubre ambos identificadores, ambos desafíos, el nombre y el puerto. El receptor comprueba el HMAC, que el desafío no se haya usado ni expirado, y que la respuesta provenga de la misma dirección que lo solicitó. Solo entonces actualiza la dirección del par. Su respuesta incluye otro HMAC con una etiqueta de dominio distinta, por lo que el cliente también verifica al receptor antes de guardar la dirección nueva. Las comparaciones de HMAC se hacen en tiempo constante. Los desafíos caducan a los 30 segundos y se limitan a 64 simultáneos.
+
+La clave simétrica de 256 bits ya se guarda en el almacenamiento seguro de cada plataforma. El cambio de dirección no crea una clave nueva ni depende de la IP o del nombre anunciado. Si ambos equipos están en otra red local alcanzable, al menos uno debe anunciarse con **Visible en la red** para que el otro lo encuentre. Esto no ofrece transferencia entre redes aisladas ni protección contra denegación de servicio o retransmisión en tiempo real por un intermediario.
+
 ## Transferencia
 
 1. `POST /offer`: el emisor identificado envía nombre saneado, tamaño y SHA-256 dentro de un sobre AES-GCM autenticado. El receptor acepta o rechaza.
@@ -24,5 +32,5 @@ El cuerpo de cada mensaje es JSON; los bytes cifrados se codifican con base64url
 - Solo IPv4 y red local alcanzable; el QR puede llevar varias direcciones y el lector intenta conectarse a cada una.
 - Un archivo por envío, hasta 16 GiB.
 - La app debe estar abierta en ambos dispositivos.
-- No hay reanudación después de cerrar la app ni actualización automática de la IP de un par ya guardado; si cambia, hay que volver a emparejarlo.
+- No hay reanudación después de cerrar la app. La IP de un par guardado se actualiza automáticamente solo después de la autenticación mutua y cuando mDNS permite encontrarlo en la red local.
 - La recepción se escribe primero a un archivo `.part`; si una transferencia se interrumpe, el temporal se elimina al volver a abrir la app.

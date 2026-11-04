@@ -47,6 +47,9 @@ class _HomePageState extends State<HomePage> {
   String? _error;
   String? _discoveryError;
   TransferProgress? _progress;
+  Timer? _reconnectTimer;
+  final Set<String> _reconnecting = {};
+  final Map<String, DateTime> _lastReconnectAttempt = {};
 
   @override
   void initState() {
@@ -68,6 +71,7 @@ class _HomePageState extends State<HomePage> {
       final discovery = DiscoveryService(_service.deviceId);
       discovery.onChanged = () {
         if (mounted) setState(() {});
+        _verifyNearbyPeers();
       };
       discovery.onError = (error) {
         if (mounted) setState(() => _discoveryError = error.toString());
@@ -100,6 +104,10 @@ class _HomePageState extends State<HomePage> {
         }
       };
       unawaited(_startDiscovery(discovery));
+      _reconnectTimer = Timer.periodic(
+        const Duration(seconds: 12),
+        (_) => _verifyNearbyPeers(),
+      );
     } catch (error) {
       _error = error.toString();
     }
@@ -115,8 +123,39 @@ class _HomePageState extends State<HomePage> {
           _service.nearbyPublicKey,
         );
       }
+      _verifyNearbyPeers();
     } catch (error) {
       if (mounted) setState(() => _discoveryError = error.toString());
+    }
+  }
+
+  void _verifyNearbyPeers() {
+    final discovery = _discovery;
+    if (discovery == null) return;
+    for (final peer in _service.peers.values) {
+      final candidates = discovery.candidatesForPeer(peer.id);
+      if (candidates.isEmpty || _reconnecting.contains(peer.id)) continue;
+      final now = DateTime.now();
+      final last = _lastReconnectAttempt[peer.id];
+      if (last != null && now.difference(last) < const Duration(seconds: 10)) {
+        continue;
+      }
+      _lastReconnectAttempt[peer.id] = now;
+      _reconnecting.add(peer.id);
+      unawaited(() async {
+        try {
+          for (final candidate in candidates) {
+            try {
+              await _service.reconnectKnownPeer(candidate);
+              break;
+            } catch (_) {
+              // A forged or stale mDNS record cannot change a saved peer.
+            }
+          }
+        } finally {
+          _reconnecting.remove(peer.id);
+        }
+      }());
     }
   }
 
@@ -525,7 +564,11 @@ class _HomePageState extends State<HomePage> {
                             child: Icon(Icons.devices),
                           ),
                           title: Text(peer.name),
-                          subtitle: Text('${peer.host}:${peer.port}'),
+                          subtitle: Text(
+                            peer.verified
+                                ? 'Identidad verificada · ${peer.host}:${peer.port}'
+                                : 'Buscando en la red · Última IP: ${peer.host}',
+                          ),
                           trailing: Wrap(
                             spacing: 4,
                             children: [
@@ -625,6 +668,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
     _linkController.dispose();
     unawaited(_discovery?.dispose());
     unawaited(_service.dispose());
