@@ -1,0 +1,53 @@
+name: Instalador Windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Verificar carpeta de la aplicación
+        shell: pwsh
+        run: |
+          $release = 'build/windows/x64/runner/Release'
+          foreach ($path in @('lanlink.exe', 'flutter_windows.dll', 'data')) {
+            if (-not (Test-Path (Join-Path $release $path))) {
+              throw "Falta $path en $release"
+            }
+          }
+          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'No se encontró vswhere.exe' }
+          $vs = & $vswhere -latest -property installationPath
+          $crt = Get-ChildItem (Join-Path $vs 'VC/Redist/MSVC/*/x64/Microsoft.VC143.CRT') -Directory |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $crt) { throw 'No se encontró el runtime de Visual C++' }
+          foreach ($dll in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+            Copy-Item (Join-Path $crt.FullName $dll) $release -ErrorAction Stop
+          }
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - name: Crear instalador
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem 'C:\Program Files (x86)','C:\Program Files' -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $iscc) { throw 'No se encontró ISCC.exe' }
+          & $iscc 'installer/windows/LanLink.iss'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LanLink-Windows-x64-Setup
+          path: build/windows-installer/LanLink-Windows-x64-Setup.exe
+          retention-days: 30
