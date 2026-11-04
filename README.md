@@ -33,6 +33,8 @@ flutter run -d macos    # o windows, linux, android, ios
 
 Las compilaciones de iOS y macOS requieren Xcode en un Mac. Android requiere Android SDK; Windows requiere Visual Studio con el entorno de C++; Linux requiere las bibliotecas de desarrollo de Flutter. Los identificadores de paquete generados por Flutter siguen siendo provisionales y deben configurarse antes de distribuir la app.
 
+Para las pruebas en Android, el flujo manual **Android de prueba firmado** usa una clave de firma estable guardada fuera del repositorio y como secretos de GitHub Actions. Instalar por primera vez esta versión sobre un APK de depuración con otra firma requiere desinstalar aquel APK; las siguientes versiones generadas por este flujo pueden actualizarse sin borrar los vínculos. La clave de prueba no debe usarse para publicar en una tienda.
+
 ## Protocolo y seguridad
 
 El protocolo v1 está descrito en [docs/protocol.md](docs/protocol.md). Usa HTTP sobre TCP para transportar mensajes cifrados por la propia aplicación. Aunque la conexión HTTP local no emplea TLS, el emparejamiento cercano usa X25519 y cada mensaje de archivo se protege con AES-256-GCM. El anuncio Bonjour contiene una clave pública temporal, nunca una clave secreta. La app guarda las claves de pares en el almacenamiento seguro del sistema. La aprobación por nombre no protege frente a un atacante activo que suplante anuncios en la red; para redes que no sean de confianza, preferí el QR. Este protocolo todavía no tiene auditoría externa; no se presenta como listo para datos de alta sensibilidad.

@@ -4,6 +4,9 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val lanlinkKeystorePath = System.getenv("LANLINK_ANDROID_KEYSTORE_PATH").orEmpty()
+val lanlinkKeystorePassword = System.getenv("LANLINK_ANDROID_KEYSTORE_PASSWORD").orEmpty()
+
 android {
     namespace = "com.example.lanlink"
     compileSdk = flutter.compileSdkVersion
@@ -29,11 +32,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (lanlinkKeystorePath.isNotBlank() && lanlinkKeystorePassword.isNotBlank()) {
+            create("lanlinkRelease") {
+                storeFile = file(lanlinkKeystorePath)
+                storePassword = lanlinkKeystorePassword
+                keyAlias = "lanlink"
+                keyPassword = lanlinkKeystorePassword
+                storeType = "pkcs12"
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("lanlinkRelease")
+                ?: signingConfigs.getByName("debug")
         }
     }
 }

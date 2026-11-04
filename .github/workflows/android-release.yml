@@ -1,0 +1,36 @@
+name: Android de prueba firmado
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+      - name: Preparar firma privada
+        shell: bash
+        env:
+          LANLINK_KEYSTORE_BASE64: ${{ secrets.LANLINK_ANDROID_KEYSTORE_BASE64 }}
+          LANLINK_KEYSTORE_PASSWORD: ${{ secrets.LANLINK_ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$LANLINK_KEYSTORE_BASE64"
+          test -n "$LANLINK_KEYSTORE_PASSWORD"
+          printf '%s' "$LANLINK_KEYSTORE_BASE64" | base64 --decode > android/lanlink-upload.p12
+          chmod 600 android/lanlink-upload.p12
+          echo "LANLINK_ANDROID_KEYSTORE_PATH=$GITHUB_WORKSPACE/android/lanlink-upload.p12" >> "$GITHUB_ENV"
+          echo "LANLINK_ANDROID_KEYSTORE_PASSWORD=$LANLINK_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LanLink-Android-prueba-firmada
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
