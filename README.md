@@ -35,6 +35,16 @@ Las compilaciones de iOS y macOS requieren Xcode en un Mac. Android requiere And
 
 Para las pruebas en Android, el flujo manual **Android de prueba firmado** usa una clave de firma estable guardada fuera del repositorio y como secretos de GitHub Actions. Instalar por primera vez esta versión sobre un APK de depuración con otra firma requiere desinstalar aquel APK; las siguientes versiones generadas por este flujo pueden actualizarse sin borrar los vínculos. La clave de prueba no debe usarse para publicar en una tienda.
 
+Para actualizar la app de macOS sin volver a pedir acceso al llavero en cada compilación, firmá todas las versiones locales con el **mismo certificado** y conservá el identificador `com.example.lanlink`. Las compilaciones ad hoc cambian de identidad con cada versión. En el Mac que tiene el certificado, consultá `security find-identity -p codesigning -v` y ejecutá:
+
+```sh
+export LANLINK_MACOS_SIGNING_IDENTITY=SHA1_DEL_CERTIFICADO_APPLE_DEVELOPMENT
+export LANLINK_MACOS_TEAM_ID=ID_DEL_EQUIPO_APPLE
+./scripts/build_macos_signed.sh
+```
+
+El paquete queda en `build/macos-signed/dist/LanLink-macOS-signed.zip`. El script comprueba la firma también después de extraer el ZIP. No se guardan certificados ni claves privadas en el repositorio. Al pasar desde una versión ad hoc a la primera firmada, macOS puede pedir autorización **una vez** para el elemento existente del llavero; elegí **Permitir siempre** e ingresá la contraseña directamente en el diálogo del sistema. Las siguientes actualizaciones firmadas con ese mismo certificado deberían mantener el permiso. Esta firma de desarrollo es para instalaciones locales; la distribución pública fuera del Mac requiere su propio proceso de firma y notarización.
+
 ## Protocolo y seguridad
 
 El protocolo v1 está descrito en [docs/protocol.md](docs/protocol.md). Usa HTTP sobre TCP para transportar mensajes cifrados por la propia aplicación. Aunque la conexión HTTP local no emplea TLS, el emparejamiento cercano usa X25519 y cada mensaje de archivo se protege con AES-256-GCM. El anuncio Bonjour contiene una clave pública temporal, nunca una clave secreta. La app guarda las claves de pares en el almacenamiento seguro del sistema. La aprobación por nombre no protege frente a un atacante activo que suplante anuncios en la red; para redes que no sean de confianza, preferí el QR. Este protocolo todavía no tiene auditoría externa; no se presenta como listo para datos de alta sensibilidad.
