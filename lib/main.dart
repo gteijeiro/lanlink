@@ -10,6 +10,8 @@ import 'package:share_plus/share_plus.dart';
 
 import 'discovery_service.dart';
 import 'download_storage.dart';
+import 'pairing_key_dialog.dart';
+import 'pairing_password.dart';
 import 'transfer_service.dart';
 
 void main() {
@@ -326,7 +328,7 @@ class _HomePageState extends State<HomePage> {
                   onChanged: (_) => update(() {}),
                   decoration: const InputDecoration(
                     labelText: 'Clave de vinculación',
-                    hintText: 'LL1-…',
+                    hintText: 'Mínimo 6 caracteres',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -343,9 +345,9 @@ class _HomePageState extends State<HomePage> {
               child: const Text('Solicitar aprobación'),
             ),
             FilledButton(
-              onPressed: controller.text.trim().isEmpty
+              onPressed: pairingPasswordLength(controller.text) < 6
                   ? null
-                  : () => Navigator.pop(context, controller.text.trim()),
+                  : () => Navigator.pop(context, controller.text),
               child: const Text('Vincular con clave'),
             ),
           ],
@@ -365,82 +367,9 @@ class _HomePageState extends State<HomePage> {
   Future<void> _configurePairingKey() async {
     await showDialog<void>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, update) => AlertDialog(
-          title: const Text('Clave de vinculación'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Quien tenga esta clave podrá vincularse con este equipo sin aprobación mientras LanLink esté abierto y visible en la red. Los archivos seguirán pidiendo aprobación, salvo que marques al equipo como de confianza.',
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Permitir vinculación con clave'),
-                  value: _service.pairingKey != null,
-                  onChanged: (value) async {
-                    try {
-                      if (value) {
-                        await _service.enablePairingKey();
-                      } else {
-                        await _service.disablePairingKey();
-                      }
-                      if (context.mounted) update(() {});
-                      if (mounted) setState(() {});
-                    } catch (error) {
-                      _showMessage(error.toString());
-                    }
-                  },
-                ),
-                if (_service.pairingKey != null) ...[
-                  SelectableText(_service.pairingKey!),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    children: [
-                      TextButton.icon(
-                        icon: const Icon(Icons.copy),
-                        label: const Text('Copiar clave'),
-                        onPressed: () async {
-                          await Clipboard.setData(
-                            ClipboardData(text: _service.pairingKey!),
-                          );
-                          _showMessage(
-                            'Clave copiada. Compartila solo con quien quieras vincular.',
-                          );
-                        },
-                      ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Renovar clave'),
-                        onPressed: () async {
-                          try {
-                            await _service.rotatePairingKey();
-                            if (context.mounted) update(() {});
-                          } catch (error) {
-                            _showMessage(error.toString());
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                  const Text(
-                    'Renovarla invalida la clave anterior para nuevos vínculos. Los dispositivos ya vinculados se conservan.',
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cerrar'),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => PairingKeyDialog(service: _service),
     );
+    if (mounted) setState(() {});
   }
 
   Future<void> _setTrusted(Peer peer) async {

@@ -24,7 +24,11 @@ Los archivos recibidos con versiones anteriores se migran al nuevo destino al ab
 
 ## Vinculación con clave y equipos de confianza
 
-En el botón de la llave de la barra superior, activá **Permitir vinculación con clave**. LanLink genera una clave aleatoria de 256 bits con prefijo `LL1-`, guardada en el almacenamiento seguro del sistema. Copiala al otro equipo: en **Disponibles en mi red → Conectar**, pegala y elegí **Vincular con clave**. El receptor no pide confirmación. Ambos equipos deben estar abiertos en la misma red y el receptor debe tener **Visible en la red** activado. La clave nunca se anuncia por Bonjour ni se envía en texto claro. Podés desactivarla o renovarla; eso conserva los vínculos existentes. La clave no es una contraseña corta elegida a mano.
+En el botón de la llave de la barra superior, escribí tu clave y elegí **Guardar y activar**. La única restricción es tener **al menos 6 caracteres**; no se exige mezclar letras, números ni símbolos. El indicador **Muy débil / Débil / Media / Fuerte** es orientativo y nunca bloquea el guardado. También podés usar **Generar clave corta** para crear una de 12 caracteres. Los espacios y las mayúsculas se conservan exactamente.
+
+La clave queda en el almacenamiento seguro del sistema. **Copiar** y **Compartir** usan únicamente la clave guardada; si hay cambios sin guardar, se desactivan. Compartir abre el mecanismo disponible en el sistema (en algunos equipos, un correo nuevo), y si no está disponible se puede copiar. Para vincular, en el otro equipo elegí **Disponibles en mi red → Conectar → Vincular con clave**. El receptor no pide confirmación. Ambos equipos deben estar abiertos en la misma red y el receptor debe tener **Visible en la red** activado. Las claves personalizadas requieren la versión 1.2 o posterior en ambos; las claves anteriores `LL1-` se conservan y siguen funcionando.
+
+La clave nunca se anuncia por Bonjour ni se transmite en texto claro durante la vinculación. Las claves personalizadas usan PBKDF2-HMAC-SHA256 antes del intercambio autenticado y se limitan los intentos remotos. Esto no vuelve fuerte una clave corta o común: el indicador es una estimación. Cambiar la clave conserva los vínculos existentes.
 
 En **Mis dispositivos → Opciones → Aceptar archivos automáticamente**, podés marcar un equipo como de confianza. Solo ese receptor aceptará automáticamente sus ofertas autenticadas. Los vínculos nuevos y los guardados por versiones anteriores piden aprobación por defecto. **Pedir aprobación para archivos** desactiva la confianza.
 

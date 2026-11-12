@@ -12,6 +12,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'download_storage.dart';
+import 'pairing_password.dart';
 
 const protocolVersion = 1;
 const maxMessageBytes = 1024 * 1024;
@@ -363,7 +364,9 @@ class TransferService {
   final Map<String, DateTime> _revocationAttempts = {};
   final List<DateTime> _pairKeyAttempts = [];
   String? _pairingKey;
-  String? get pairingKey => _pairingKey == null ? null : 'LL1-$_pairingKey';
+  String? _pairingSecret;
+  Future<void> _pairingUpdates = Future.value();
+  String? get pairingKey => _pairingKey;
   Set<String> get pendingRevocations => Set.unmodifiable(_pendingRevocations);
   final Map<String, _IncomingFile> _incoming = {};
   final Map<String, _IdentityChallenge> _identityChallenges = {};
@@ -397,7 +400,14 @@ class TransferService {
     deviceId = await _storage.read('device-id') ?? _randomUrlSafe(16);
     await _storage.write('device-id', deviceId);
     visibleOnLan = await _storage.read('visible-on-lan') == 'true';
-    _pairingKey = await _storage.read('pairing-key');
+    _pairingKey = await _storage.read('pairing-key-v2');
+    if (_pairingKey == null) {
+      final legacy = await _storage.read('pairing-key');
+      if (legacy != null) _pairingKey = 'LL1-$legacy';
+    }
+    if (_pairingKey != null) {
+      _pairingSecret = await derivePairingPassword(_pairingKey!, deviceId);
+    }
     deviceName =
         identityName ??
         await _storage.read('device-name') ??
@@ -550,32 +560,41 @@ class TransferService {
   Future<void> pair(String qrValue) =>
       pairInvitation(Invitation.fromQr(qrValue));
 
-  Future<String> enablePairingKey() async {
-    _pairingKey ??= _randomUrlSafe(32);
-    await _storage.write('pairing-key', _pairingKey!);
-    return pairingKey!;
+  Future<String> setPairingKey(String value) {
+    validatePairingPassword(value);
+    final work = _pairingUpdates.then((_) async {
+      final secret = await derivePairingPassword(value, deviceId);
+      await _storage.write('pairing-key-v2', value);
+      await _storage.delete('pairing-key');
+      _pairingKey = value;
+      _pairingSecret = secret;
+      return value;
+    });
+    _pairingUpdates = work.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return work;
   }
+
+  Future<String> enablePairingKey() =>
+      setPairingKey(_pairingKey ?? generatePairingPassword());
 
   Future<String> rotatePairingKey() async {
-    _pairingKey = _randomUrlSafe(32);
-    await _storage.write('pairing-key', _pairingKey!);
-    return pairingKey!;
+    // Persist invalidation before the slow derivation, including across crashes.
+    await disablePairingKey();
+    return setPairingKey(generatePairingPassword());
   }
 
-  Future<void> disablePairingKey() async {
-    _pairingKey = null;
-    await _storage.delete('pairing-key');
-  }
-
-  static String _parsePairingKey(String value) {
-    final key = value.trim();
-    if (!RegExp(r'^LL1-[A-Za-z0-9_-]{43}$').hasMatch(key) ||
-        _decode64(key.substring(4)).length != 32) {
-      throw const FormatException(
-        'Pegá la clave completa generada por LanLink (LL1-…).',
-      );
-    }
-    return key.substring(4);
+  Future<void> disablePairingKey() {
+    final work = _pairingUpdates.then((_) async {
+      _pairingKey = null;
+      _pairingSecret = null;
+      await _storage.delete('pairing-key-v2');
+      await _storage.delete('pairing-key');
+    });
+    _pairingUpdates = work.catchError((Object _) {});
+    return work;
   }
 
   Future<String> _keyPairingSecret(
@@ -606,7 +625,7 @@ class TransferService {
         ? dhSecret
         : await _keyPairingSecret(
             dhSecret,
-            _parsePairingKey(pairingKey),
+            await derivePairingPassword(pairingKey, invite.id),
             invite.id,
           );
     final requestAad = pairingKey == null
@@ -922,7 +941,7 @@ class TransferService {
             final response = await _postJson(host, remotePort, '/unpair', {
               'peer': deviceId,
               'box': box,
-            }, timeout: const Duration(seconds: 3));
+            }, timeout: const Duration(seconds: 10));
             final ack = await CryptoEnvelope.decryptJson(
               response,
               key,
@@ -1366,12 +1385,15 @@ class TransferService {
       throw StateError('Este equipo no está visible en la red.');
     }
     final configuredKey = _pairingKey;
+    final configuredSecret = _pairingSecret;
     if (withPairingKey) {
       final now = DateTime.now();
       _pairKeyAttempts.removeWhere(
         (time) => now.difference(time) > const Duration(minutes: 1),
       );
-      if (configuredKey == null || _pairKeyAttempts.length >= 10) {
+      if (configuredSecret == null ||
+          _revoking.isNotEmpty ||
+          _pairKeyAttempts.length >= 10) {
         throw StateError(
           'Vinculación con clave no disponible. Esperá un minuto o usá QR.',
         );
@@ -1387,7 +1409,7 @@ class TransferService {
     try {
       final dhSecret = await _nearbySharedSecret(_nearbyKeyPair!, remoteBytes);
       final secret = withPairingKey
-          ? await _keyPairingSecret(dhSecret, configuredKey!, deviceId)
+          ? await _keyPairingSecret(dhSecret, configuredSecret!, deviceId)
           : dhSecret;
       final data = await CryptoEnvelope.decryptJson(
         (body['box'] as Map).cast<String, dynamic>(),
@@ -1413,7 +1435,8 @@ class TransferService {
           await (onPairRequest?.call(PairRequest(scannerName)) ??
               Future.value(false));
       if (!approved) throw StateError('Emparejamiento rechazado.');
-      if (withPairingKey && _pairingKey != configuredKey) {
+      if (withPairingKey &&
+          (_pairingKey != configuredKey || _revoking.isNotEmpty)) {
         throw StateError('La clave de vinculación cambió.');
       }
       final hostRandom = _randomUrlSafe(32);

@@ -112,7 +112,7 @@ void main() {
       throwsStateError,
     );
     final json = await File('${root.path}/B/support/peers.json').readAsString();
-    expect(json.contains(key.substring(4)), false);
+    expect(json.contains(key), false);
   });
 
   test('Clave incorrecta, desactivada o renovada no vincula ni sustituye a otro equipo', () async {
@@ -152,7 +152,8 @@ void main() {
     'Los intentos de clave están limitados y nunca saltan a aprobación manual',
     () async {
       final correct = await b.service.enablePairingKey();
-      final wrong = await a.service.enablePairingKey();
+      final wrong =
+          'LL1-${base64Url.encode(List.filled(32, 37)).replaceAll('=', '')}';
       b.service.onPairRequest = (_) =>
           throw StateError('No debería pedir aprobación');
       for (var i = 0; i < 10; i++) {
@@ -380,6 +381,40 @@ void main() {
     expect(b.service.peers, isEmpty);
     expect(a.service.pendingRevocations, isEmpty);
     expect(b.service.pendingRevocations, isEmpty);
+  });
+
+  test('Se vincula con una clave elegida de seis caracteres y se conserva al reiniciar', () async {
+    await b.service.setPairingKey('123456');
+    await b.restart();
+    expect(b.service.pairingKey, '123456');
+    b.service.onPairRequest = (_) =>
+        throw StateError('No debe pedir aprobación');
+    await a.service.pairNearby(b.invite, pairingKey: '123456');
+    expect(b.service.peers.containsKey(a.service.deviceId), true);
+    await b.service.setPairingKey('      ');
+    expect(b.service.pairingKey, '      ');
+    final file = await File('${root.path}/despues.txt')
+        .writeAsString('vínculo conservado');
+    await a.service.sendFile(
+      a.service.peers[b.service.deviceId]!,
+      XFile(file.path),
+    );
+    expect(
+      await File('${root.path}/B/files/despues.txt').readAsString(),
+      'vínculo conservado',
+    );
+  });
+
+  test('Se conservan las claves LL1 de la versión anterior', () async {
+    await b.service.dispose();
+    const legacy = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    b.store.values['pairing-key'] = legacy;
+    await b.start();
+    expect(b.service.pairingKey, 'LL1-$legacy');
+    await a.service.pairNearby(b.invite, pairingKey: 'LL1-$legacy');
+    await b.service.disablePairingKey();
+    expect(b.store.values['pairing-key'], isNull);
+    expect(b.store.values['pairing-key-v2'], isNull);
   });
 
   test(
