@@ -992,6 +992,10 @@ class TransferService {
           _revoking.remove(id);
         }
       }
+      if (_revocationKeys[id] == key && _pendingRevocations.remove(id)) {
+        await _persistRevocations();
+        onPeersChanged?.call();
+      }
       return CryptoEnvelope.encryptJson(
         {'from': deviceId, 'to': id, 'nonce': data['nonce'], 'revoked': true},
         key,
@@ -1014,6 +1018,23 @@ class TransferService {
           'from': deviceId,
           'to': peer.id,
         }, timeout: const Duration(seconds: 5));
+        if (start['revoked'] is Map) {
+          final proof = await CryptoEnvelope.decryptJson(
+            (start['revoked'] as Map).cast<String, dynamic>(),
+            await _revocationKey(key, peer.id),
+            aad: 'revoked-identity-v1',
+          );
+          if (proof['from'] != peer.id ||
+              proof['to'] != deviceId ||
+              proof['revoked'] != true ||
+              _keys[peer.id] != key) {
+            throw const FormatException('Revocación de identidad inválida.');
+          }
+          peer.host = host;
+          peer.port = invite.port;
+          await removePeer(peer.id);
+          return;
+        }
         final serverNonce = start['nonce'] as String;
         if (_decode64(serverNonce).length != 32) {
           throw const FormatException('Desafío de identidad inválido.');
@@ -1431,10 +1452,19 @@ class TransferService {
     HttpRequest request,
   ) async {
     final peerId = body['from'];
-    if (peerId is! String ||
-        body['to'] != deviceId ||
-        !_keys.containsKey(peerId)) {
+    if (peerId is! String || body['to'] != deviceId) {
       throw StateError('Dispositivo no vinculado.');
+    }
+    if (!_keys.containsKey(peerId)) {
+      final revokedKey = _revocationKeys[peerId];
+      if (revokedKey == null) throw StateError('Dispositivo no vinculado.');
+      return {
+        'revoked': await CryptoEnvelope.encryptJson(
+          {'from': deviceId, 'to': peerId, 'revoked': true},
+          revokedKey,
+          aad: 'revoked-identity-v1',
+        ),
+      };
     }
     _identityChallenges.removeWhere(
       (_, challenge) =>

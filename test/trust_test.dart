@@ -369,6 +369,19 @@ void main() {
     },
   );
 
+  test('Un equipo invisible recibe la revocación al encontrar al otro tras cambiar de red', () async {
+    await a.service.pairInvitation(b.service.invitation);
+    await b.service.dispose();
+    await a.service.removePeer(b.service.deviceId);
+    expect(a.service.pendingRevocations, {b.service.deviceId});
+    await b.start();
+    await b.service.setVisibleOnLan(false);
+    await b.service.reconnectKnownPeer(a.invite);
+    expect(b.service.peers, isEmpty);
+    expect(a.service.pendingRevocations, isEmpty);
+    expect(b.service.pendingRevocations, isEmpty);
+  });
+
   test(
     'Los vínculos de versiones anteriores no son de confianza por defecto',
     () {
