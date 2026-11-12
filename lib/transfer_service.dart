@@ -11,10 +11,12 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'download_storage.dart';
+
 const protocolVersion = 1;
 const maxMessageBytes = 1024 * 1024;
 const maxFileBytes = 16 * 1024 * 1024 * 1024;
-final _temporaryFileSuffix = RegExp(r'\.[A-Za-z0-9_-]{22}\.part$');
+final _temporaryFileSuffix = temporaryDownloadSuffix;
 
 String _randomUrlSafe(int count) {
   final bytes = List<int>.generate(count, (_) => Random.secure().nextInt(256));
@@ -331,9 +333,11 @@ class TransferService {
     this.receivedDirectory,
     this.advertisedHosts,
     this.identityName,
-  }) : _storage = storage ?? SecureKeyValueStore();
+  }) : _storage = storage ?? SecureKeyValueStore(),
+       downloads = DownloadStorage(overrideDirectory: receivedDirectory);
 
   final KeyValueStore _storage;
+  final DownloadStorage downloads;
   final int listenPort;
   final Directory? supportDirectory;
   final Directory? receivedDirectory;
@@ -394,6 +398,7 @@ class TransferService {
       shared: false,
     );
     _server!.listen(_handle, onError: (_) {});
+    await downloads.initialize();
     await _clearInterruptedFiles();
     await refreshInvitation();
     await _refreshNearbyKey();
@@ -442,11 +447,7 @@ class TransferService {
   }
 
   Future<void> _clearInterruptedFiles() async {
-    final dir =
-        receivedDirectory ??
-        Directory(
-          '${(await getApplicationDocumentsDirectory()).path}/LanLink Recibidos',
-        );
+    final dir = await downloads.stagingDirectory;
     if (!await dir.exists()) return;
     await for (final entry in dir.list()) {
       if (entry is File && _temporaryFileSuffix.hasMatch(entry.path)) {
@@ -809,24 +810,7 @@ class TransferService {
     }
   }
 
-  Future<List<File>> receivedFiles() async {
-    final dir =
-        receivedDirectory ??
-        Directory(
-          '${(await getApplicationDocumentsDirectory()).path}/LanLink Recibidos',
-        );
-    if (!await dir.exists()) return [];
-    final files = await dir
-        .list()
-        .where(
-          (entry) =>
-              entry is File && !_temporaryFileSuffix.hasMatch(entry.path),
-        )
-        .cast<File>()
-        .toList();
-    files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
-    return files;
-  }
+  Future<List<ReceivedDownload>> receivedFiles() => downloads.list();
 
   Future<void> sendFile(Peer peer, XFile file) async {
     final key = _keys[peer.id];
@@ -1210,11 +1194,7 @@ class TransferService {
         aad: 'offer-response-v1',
       );
     }
-    final dir =
-        receivedDirectory ??
-        Directory(
-          '${(await getApplicationDocumentsDirectory()).path}/LanLink Recibidos',
-        );
+    final dir = await downloads.stagingDirectory;
     await dir.create(recursive: true);
     final destination = await _uniqueDestination(dir, name);
     final id = _randomUrlSafe(16);
@@ -1259,9 +1239,7 @@ class TransferService {
           .last
           .split('.$id.part')
           .first;
-      final dir = transfer.file.parent;
-      final destination = await _uniqueDestination(dir, originalName);
-      await transfer.file.rename(destination.path);
+      await downloads.publish(transfer.file, originalName);
       _incoming.remove(id);
     }
     onProgress?.call(

@@ -9,6 +9,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'discovery_service.dart';
+import 'download_storage.dart';
 import 'transfer_service.dart';
 
 void main() {
@@ -190,7 +191,7 @@ class _HomePageState extends State<HomePage> {
           builder: (context) => AlertDialog(
             title: const Text('Archivo entrante'),
             content: Text(
-              '${offer.peer.name} quiere enviarte “${offer.name}” (${_size(offer.size)}).\n\nSe guardará en “LanLink Recibidos” dentro de los documentos de la app.',
+              '${offer.peer.name} quiere enviarte “${offer.name}” (${_size(offer.size)}).\n\nSe guardará en ${_service.downloads.label}.',
             ),
             actions: [
               TextButton(
@@ -380,24 +381,24 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _export(File file) async {
+  Future<void> _export(ReceivedDownload file) async {
     try {
+      final exported = await _service.downloads.forExport(file);
+      if (!mounted) return;
       if (Platform.isAndroid || Platform.isIOS) {
         final box = context.findRenderObject() as RenderBox?;
         await SharePlus.instance.share(
           ShareParams(
-            files: [XFile(file.path)],
+            files: [exported],
             sharePositionOrigin: box == null
                 ? null
                 : box.localToGlobal(Offset.zero) & box.size,
           ),
         );
       } else {
-        final location = await getSaveLocation(
-          suggestedName: file.uri.pathSegments.last,
-        );
+        final location = await getSaveLocation(suggestedName: file.name);
         if (location != null) {
-          await XFile(file.path).saveTo(location.path);
+          await exported.saveTo(location.path);
           _showMessage('Archivo guardado en ${location.path}.');
         }
       }
@@ -627,9 +628,30 @@ class _HomePageState extends State<HomePage> {
                       'Archivos recibidos',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    FutureBuilder<List<File>>(
+                    Text('Destino: ${_service.downloads.label}'),
+                    if (Platform.isIOS)
+                      TextButton.icon(
+                        icon: const Icon(Icons.folder_open),
+                        label: const Text('Elegir carpeta Descargas'),
+                        onPressed: _busy
+                            ? null
+                            : () async {
+                                try {
+                                  await _service.downloads.chooseDirectory();
+                                  if (mounted) setState(() {});
+                                } catch (error) {
+                                  _showMessage(error.toString());
+                                }
+                              },
+                      ),
+                    FutureBuilder<List<ReceivedDownload>>(
                       future: _service.receivedFiles(),
                       builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Text(
+                            'No se pudieron leer las descargas: ${snapshot.error}',
+                          );
+                        }
                         final files = snapshot.data ?? [];
                         if (files.isEmpty) {
                           return const Padding(
@@ -644,7 +666,7 @@ class _HomePageState extends State<HomePage> {
                                 leading: const Icon(
                                   Icons.insert_drive_file_outlined,
                                 ),
-                                title: Text(file.uri.pathSegments.last),
+                                title: Text(file.name),
                                 trailing: IconButton(
                                   tooltip: Platform.isAndroid || Platform.isIOS
                                       ? 'Compartir o guardar'
