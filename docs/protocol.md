@@ -34,3 +34,14 @@ El cuerpo de cada mensaje es JSON; los bytes cifrados se codifican con base64url
 - La app debe estar abierta en ambos dispositivos.
 - No hay reanudación después de cerrar la app. La IP de un par guardado se actualiza automáticamente solo después de la autenticación mutua y cuando mDNS permite encontrarlo en la red local.
 - La recepción se escribe primero a un archivo `.part`; si una transferencia se interrumpe, el temporal se elimina al volver a abrir la app.
+
+
+## Vinculación por clave, confianza y revocación (1.1)
+
+`POST /pair-key` usa el intercambio X25519 de proximidad, pero mezcla su secreto con una clave aleatoria de 256 bits mediante HMAC-SHA-256 y un dominio que incluye el identificador receptor. Los mensajes AES-GCM usan AAD `pair-key-request-v1` y `pair-key-response-v1`, distintos del flujo manual. La clave general no se anuncia, no viaja por la red y no se usa directamente como clave de los pares. Las claves por par se derivan del secreto autenticado y de dos valores aleatorios nuevos; el receptor rota su clave X25519 temporal tras cada vínculo. Hay un máximo global de 10 intentos de este endpoint por minuto; el QR manual sigue disponible. Nunca se sustituye la clave de un identificador ya vinculado.
+
+La confianza para aceptar archivos es una preferencia local por vínculo (`trustedForFiles`, falsa por defecto). La autenticación y validación de cada oferta ocurren antes de considerar esa preferencia. No otorga permisos de lectura, ejecución ni confianza a otros vínculos.
+
+`POST /unpair` recibe `{peer, box}`. Su clave se deriva con HMAC-SHA-256 de la clave del par, el dominio `lanlink-revoke-key-v1` y ambos identificadores ordenados. La solicitud AES-GCM (AAD `revoke-request-v1`) contiene `from`, `to` y un nonce aleatorio de 32 bytes. La respuesta (AAD `revoke-response-v1`) devuelve esos identificadores invertidos, el mismo nonce y `revoked: true`. El emisor elimina el vínculo local antes de intentar la entrega; conserva solo la clave derivada para revocar y una cola persistente de notificaciones. Esa clave derivada no sirve para descifrar archivos ni para autenticarse como un par activo.
+
+El receptor guarda un recibo duradero para contestar reintentos si se perdió la respuesta. Un recibo de una sesión vieja no puede borrar una sesión nueva con otra clave. La cola vuelve a intentar por la última dirección y por los candidatos de descubrimiento que coinciden con el identificador; una dirección anunciada no basta para confirmar la entrega. Las escrituras de metadatos se serializan y se reemplazan mediante archivos temporales. Los vínculos anteriores sobreviven a la actualización y no pasan a ser de confianza automáticamente. La desvinculación renueva la clave general local si estaba habilitada; no afecta a otros pares ya vinculados.

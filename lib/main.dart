@@ -147,6 +147,11 @@ class _HomePageState extends State<HomePage> {
   void _verifyNearbyPeers() {
     final discovery = _discovery;
     if (discovery == null) return;
+    unawaited(
+      _service.reconcileRevocations(
+        _service.pendingRevocations.expand(discovery.candidatesForPeer),
+      ),
+    );
     for (final peer in _service.peers.values) {
       final candidates = discovery.candidatesForPeer(peer.id);
       if (candidates.isEmpty || _reconnecting.contains(peer.id)) continue;
@@ -298,8 +303,174 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _pair(String value) => _runPair(() => _service.pair(value));
 
-  Future<void> _pairNearby(NearbyInvitation invitation) =>
-      _runPair(() => _service.pairNearby(invitation));
+  Future<void> _pairNearby(NearbyInvitation invitation) async {
+    final controller = TextEditingController();
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: Text('Vincular con ${invitation.name}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Si tenés la clave de este dispositivo, podés vincular sin que aprueben del otro lado.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  onChanged: (_) => update(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Clave de vinculación',
+                    hintText: 'LL1-…',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, ''),
+              child: const Text('Solicitar aprobación'),
+            ),
+            FilledButton(
+              onPressed: controller.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(context, controller.text.trim()),
+              child: const Text('Vincular con clave'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (choice == null || !mounted) return;
+    await _runPair(
+      () => _service.pairNearby(
+        invitation,
+        pairingKey: choice.isEmpty ? null : choice,
+      ),
+    );
+  }
+
+  Future<void> _configurePairingKey() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('Clave de vinculación'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Quien tenga esta clave podrá vincularse con este equipo sin aprobación mientras LanLink esté abierto y visible en la red. Los archivos seguirán pidiendo aprobación, salvo que marques al equipo como de confianza.',
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Permitir vinculación con clave'),
+                  value: _service.pairingKey != null,
+                  onChanged: (value) async {
+                    try {
+                      if (value) {
+                        await _service.enablePairingKey();
+                      } else {
+                        await _service.disablePairingKey();
+                      }
+                      if (context.mounted) update(() {});
+                      if (mounted) setState(() {});
+                    } catch (error) {
+                      _showMessage(error.toString());
+                    }
+                  },
+                ),
+                if (_service.pairingKey != null) ...[
+                  SelectableText(_service.pairingKey!),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    children: [
+                      TextButton.icon(
+                        icon: const Icon(Icons.copy),
+                        label: const Text('Copiar clave'),
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: _service.pairingKey!),
+                          );
+                          _showMessage(
+                            'Clave copiada. Compartila solo con quien quieras vincular.',
+                          );
+                        },
+                      ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Renovar clave'),
+                        onPressed: () async {
+                          try {
+                            await _service.rotatePairingKey();
+                            if (context.mounted) update(() {});
+                          } catch (error) {
+                            _showMessage(error.toString());
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const Text(
+                    'Renovarla invalida la clave anterior para nuevos vínculos. Los dispositivos ya vinculados se conservan.',
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setTrusted(Peer peer) async {
+    var confirmed = true;
+    if (!peer.trustedForFiles) {
+      confirmed =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text('Confiar en ${peer.name}'),
+              content: const Text(
+                'Este equipo guardará automáticamente los archivos que envíe ese dispositivo, sin pedir aprobación. Podés desactivarlo desde sus opciones.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Aceptar automáticamente'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+    }
+    if (!confirmed) return;
+    await _service.setPeerTrusted(peer.id, !peer.trustedForFiles);
+  }
 
   Future<void> _runPair(Future<void> Function() action) async {
     if (_busy) return;
@@ -447,7 +618,16 @@ class _HomePageState extends State<HomePage> {
         [];
     nearby.sort((a, b) => a.name.compareTo(b.name));
     return Scaffold(
-      appBar: AppBar(title: const Text('LanLink')),
+      appBar: AppBar(
+        title: const Text('LanLink'),
+        actions: [
+          IconButton(
+            tooltip: 'Clave de vinculación',
+            icon: const Icon(Icons.key),
+            onPressed: _loading || _busy ? null : _configurePairingKey,
+          ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 800),
@@ -576,6 +756,10 @@ class _HomePageState extends State<HomePage> {
                       'Mis dispositivos',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
+                    if (_service.pendingRevocations.isNotEmpty)
+                      Text(
+                        '${_service.pendingRevocations.length} desvinculación(es) pendiente(s). Se avisará al otro equipo cuando vuelva a estar disponible.',
+                      ),
                     if (peers.isEmpty)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 18),
@@ -589,9 +773,7 @@ class _HomePageState extends State<HomePage> {
                           ),
                           title: Text(peer.name),
                           subtitle: Text(
-                            peer.verified
-                                ? 'Identidad verificada · ${peer.host}:${peer.port}'
-                                : 'Buscando en la red · Última IP: ${peer.host}',
+                            '${peer.trustedForFiles ? 'De confianza · ' : ''}${peer.verified ? 'Identidad verificada · ${peer.host}:${peer.port}' : 'Buscando en la red · Última IP: ${peer.host}'}',
                           ),
                           trailing: Wrap(
                             spacing: 4,
@@ -604,14 +786,35 @@ class _HomePageState extends State<HomePage> {
                               PopupMenuButton<String>(
                                 tooltip: 'Opciones',
                                 onSelected: (choice) async {
-                                  if (choice == 'remove') {
-                                    await _service.removePeer(peer.id);
+                                  try {
+                                    if (choice == 'remove') {
+                                      await _service.removePeer(peer.id);
+                                      _showMessage(
+                                        _service.pendingRevocations.contains(
+                                              peer.id,
+                                            )
+                                            ? 'Desvinculado aquí. Se avisará al otro equipo cuando vuelva a estar disponible.'
+                                            : 'Dispositivos desvinculados.',
+                                      );
+                                    } else if (choice == 'trust') {
+                                      await _setTrusted(peer);
+                                    }
+                                  } catch (error) {
+                                    _showMessage(error.toString());
                                   }
                                 },
-                                itemBuilder: (_) => const [
+                                itemBuilder: (_) => [
                                   PopupMenuItem(
+                                    value: 'trust',
+                                    child: Text(
+                                      peer.trustedForFiles
+                                          ? 'Pedir aprobación para archivos'
+                                          : 'Aceptar archivos automáticamente',
+                                    ),
+                                  ),
+                                  const PopupMenuItem(
                                     value: 'remove',
-                                    child: Text('Olvidar dispositivo'),
+                                    child: Text('Desvincular en ambos equipos'),
                                   ),
                                 ],
                               ),

@@ -86,9 +86,11 @@ class Peer {
     required this.name,
     required this.host,
     required this.port,
+    this.trustedForFiles = false,
   });
 
   final String id;
+  bool trustedForFiles;
   String name;
   String host;
   int port;
@@ -100,6 +102,7 @@ class Peer {
     'name': name,
     'host': host,
     'port': port,
+    'trustedForFiles': trustedForFiles,
   };
 
   factory Peer.fromJson(Map<String, dynamic> json) => Peer(
@@ -107,6 +110,7 @@ class Peer {
     name: json['name'] as String,
     host: json['host'] as String,
     port: json['port'] as int,
+    trustedForFiles: json['trustedForFiles'] == true,
   );
 }
 
@@ -349,6 +353,18 @@ class TransferService {
   final String? identityName;
   final Map<String, Peer> peers = {};
   final Map<String, String> _keys = {};
+  final Map<String, Peer> _revocations = {};
+  final Map<String, String> _revocationKeys = {};
+  final Set<String> _pendingRevocations = {};
+  final Set<String> _sendingRevocations = {};
+  final Set<String> _revoking = {};
+  Future<void> _peerWrites = Future.value();
+  Future<void> _revocationWrites = Future.value();
+  final Map<String, DateTime> _revocationAttempts = {};
+  final List<DateTime> _pairKeyAttempts = [];
+  String? _pairingKey;
+  String? get pairingKey => _pairingKey == null ? null : 'LL1-$_pairingKey';
+  Set<String> get pendingRevocations => Set.unmodifiable(_pendingRevocations);
   final Map<String, _IncomingFile> _incoming = {};
   final Map<String, _IdentityChallenge> _identityChallenges = {};
   final HttpClient _client = HttpClient()
@@ -381,6 +397,7 @@ class TransferService {
     deviceId = await _storage.read('device-id') ?? _randomUrlSafe(16);
     await _storage.write('device-id', deviceId);
     visibleOnLan = await _storage.read('visible-on-lan') == 'true';
+    _pairingKey = await _storage.read('pairing-key');
     deviceName =
         identityName ??
         await _storage.read('device-name') ??
@@ -395,6 +412,29 @@ class TransferService {
           peers[peer.id] = peer;
           _keys[peer.id] = key;
         }
+      }
+    }
+    final revocationsFile = File('${_supportDirectory!.path}/revocations.json');
+    if (await revocationsFile.exists()) {
+      for (final dynamic row
+          in jsonDecode(await revocationsFile.readAsString()) as List) {
+        final peer = Peer.fromJson(
+          (row['peer'] as Map).cast<String, dynamic>(),
+        );
+        final key = await _storage.read('revocation-${peer.id}');
+        if (key != null) {
+          _revocations[peer.id] = peer;
+          _revocationKeys[peer.id] = key;
+          if (row['pending'] == true) _pendingRevocations.add(peer.id);
+        }
+      }
+    }
+    // Finish a revocation interrupted between persisting its receipt and
+    // deleting the original peer. A newly established session has another key.
+    for (final id in _revocations.keys.toList()) {
+      final key = _keys[id];
+      if (key != null && await _revocationKey(key, id) == _revocationKeys[id]) {
+        await _forgetLocally(id);
       }
     }
     _server = await HttpServer.bind(
@@ -418,6 +458,7 @@ class TransferService {
   Future<void> _checkNetworkAddresses() async {
     if (_checkingNetwork || _invitation == null) return;
     _checkingNetwork = true;
+    unawaited(retryPendingRevocations());
     try {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
@@ -509,7 +550,47 @@ class TransferService {
   Future<void> pair(String qrValue) =>
       pairInvitation(Invitation.fromQr(qrValue));
 
-  Future<void> pairNearby(NearbyInvitation invite) async {
+  Future<String> enablePairingKey() async {
+    _pairingKey ??= _randomUrlSafe(32);
+    await _storage.write('pairing-key', _pairingKey!);
+    return pairingKey!;
+  }
+
+  Future<String> rotatePairingKey() async {
+    _pairingKey = _randomUrlSafe(32);
+    await _storage.write('pairing-key', _pairingKey!);
+    return pairingKey!;
+  }
+
+  Future<void> disablePairingKey() async {
+    _pairingKey = null;
+    await _storage.delete('pairing-key');
+  }
+
+  static String _parsePairingKey(String value) {
+    final key = value.trim();
+    if (!RegExp(r'^LL1-[A-Za-z0-9_-]{43}$').hasMatch(key) ||
+        _decode64(key.substring(4)).length != 32) {
+      throw const FormatException(
+        'Pegá la clave completa generada por LanLink (LL1-…).',
+      );
+    }
+    return key.substring(4);
+  }
+
+  Future<String> _keyPairingSecret(
+    String dhSecret,
+    String key,
+    String receiverId,
+  ) async {
+    final mac = await Hmac.sha256().calculateMac([
+      ...utf8.encode('lanlink-pair-key-v1:$receiverId:'),
+      ..._decode64(dhSecret),
+    ], secretKey: SecretKey(_decode64(key)));
+    return base64Url.encode(mac.bytes);
+  }
+
+  Future<void> pairNearby(NearbyInvitation invite, {String? pairingKey}) async {
     if (invite.id == deviceId) {
       throw StateError('No podés emparejar un dispositivo consigo mismo.');
     }
@@ -520,7 +601,20 @@ class TransferService {
     }
     final pair = await X25519().newKeyPair();
     final publicKey = await pair.extractPublicKey();
-    final secret = await _nearbySharedSecret(pair, remoteBytes);
+    final dhSecret = await _nearbySharedSecret(pair, remoteBytes);
+    final secret = pairingKey == null
+        ? dhSecret
+        : await _keyPairingSecret(
+            dhSecret,
+            _parsePairingKey(pairingKey),
+            invite.id,
+          );
+    final requestAad = pairingKey == null
+        ? 'pair-nearby-request-v1'
+        : 'pair-key-request-v1';
+    final responseAad = pairingKey == null
+        ? 'pair-nearby-response-v1'
+        : 'pair-key-response-v1';
     final clientRandom = _randomUrlSafe(32);
     final request = await CryptoEnvelope.encryptJson(
       {
@@ -530,19 +624,22 @@ class TransferService {
         'port': port,
       },
       secret,
-      aad: 'pair-nearby-request-v1',
+      aad: requestAad,
     );
     Object? lastError;
     for (final host in invite.hosts) {
       try {
-        final response = await _postJson(host, invite.port, '/pair-nearby', {
-          'publicKey': base64Url.encode(publicKey.bytes),
-          'box': request,
-        }, timeout: const Duration(minutes: 2));
+        final response = await _postJson(
+          host,
+          invite.port,
+          pairingKey == null ? '/pair-nearby' : '/pair-key',
+          {'publicKey': base64Url.encode(publicKey.bytes), 'box': request},
+          timeout: const Duration(minutes: 2),
+        );
         final result = await CryptoEnvelope.decryptJson(
           response,
           secret,
-          aad: 'pair-nearby-response-v1',
+          aad: responseAad,
         );
         if (result['id'] != invite.id) {
           throw const FormatException(
@@ -664,33 +761,244 @@ class TransferService {
     await _storage.write('peer-${peer.id}', key);
     peers[peer.id] = peer;
     _keys[peer.id] = key;
+    _pendingRevocations.remove(peer.id);
+    await _persistRevocations();
     await _persistPeers();
   }
 
   void _requireNewPeer(String id) {
-    if (peers.containsKey(id) || _keys.containsKey(id)) {
+    if (peers.containsKey(id) ||
+        _keys.containsKey(id) ||
+        _revoking.contains(id)) {
       throw StateError(
-        'Este dispositivo ya está vinculado. Olvidalo en ambos equipos '
-        'si necesitás crear un vínculo nuevo.',
+        'Este dispositivo ya está vinculado. Desvinculalo antes de '
+        'crear un vínculo nuevo.',
       );
     }
   }
 
-  Future<void> _persistPeers() async {
-    final file = File('${_supportDirectory!.path}/peers.json');
-    await file.writeAsString(
-      jsonEncode(peers.values.map((peer) => peer.toJson()).toList()),
-      flush: true,
-    );
-    onPeersChanged?.call();
+  Future<void> _persistPeers() {
+    final work = _peerWrites.then((_) async {
+      final file = File('${_supportDirectory!.path}/peers.json');
+      final temporary = File('${file.path}.tmp');
+      await temporary.writeAsString(
+        jsonEncode(peers.values.map((peer) => peer.toJson()).toList()),
+        flush: true,
+      );
+      await temporary.rename(file.path);
+      onPeersChanged?.call();
+    });
+    _peerWrites = work.catchError((Object _) {});
+    return work;
   }
 
-  Future<void> removePeer(String id) async {
+  Future<void> setPeerTrusted(String id, bool value) async {
+    final peer = peers[id];
+    if (peer == null) throw StateError('El dispositivo ya no está vinculado.');
+    peer.trustedForFiles = value;
+    await _persistPeers();
+  }
+
+  Future<String> _revocationKey(String key, String peerId) async {
+    final ids = [deviceId, peerId]..sort();
+    final mac = await Hmac.sha256().calculateMac(
+      utf8.encode(jsonEncode(['lanlink-revoke-key-v1', ...ids])),
+      secretKey: SecretKey(_decode64(key)),
+    );
+    return base64Url.encode(mac.bytes);
+  }
+
+  Future<void> _persistRevocations() {
+    final work = _revocationWrites.then((_) async {
+      final file = File('${_supportDirectory!.path}/revocations.json');
+      final temporary = File('${file.path}.tmp');
+      await temporary.writeAsString(
+        jsonEncode(
+          _revocations.values
+              .map(
+                (peer) => {
+                  'peer': peer.toJson(),
+                  'pending': _pendingRevocations.contains(peer.id),
+                },
+              )
+              .toList(),
+        ),
+        flush: true,
+      );
+      await temporary.rename(file.path);
+    });
+    _revocationWrites = work.catchError((Object _) {});
+    return work;
+  }
+
+  Future<void> _forgetLocally(String id) async {
     peers.remove(id);
     _keys.remove(id);
     _identityChallenges.removeWhere((_, challenge) => challenge.peerId == id);
     await _storage.delete('peer-$id');
+    // A removed peer may know the general onboarding key. Rotate it so that
+    // the removed peer cannot immediately rejoin using that old credential.
+    if (_pairingKey != null) await rotatePairingKey();
+    final incoming = _incoming.entries
+        .where((entry) => entry.value.peer.id == id)
+        .toList();
+    for (final entry in incoming) {
+      _incoming.remove(entry.key);
+      if (await entry.value.file.exists()) await entry.value.file.delete();
+    }
     await _persistPeers();
+  }
+
+  Future<void> removePeer(String id) async {
+    if (!_revoking.add(id)) return;
+    try {
+      final peer = peers[id];
+      final key = _keys[id];
+      if (peer == null || key == null) return;
+      final revokeKey = await _revocationKey(key, id);
+      await _storage.write('revocation-$id', revokeKey);
+      _revocations[id] = peer;
+      _revocationKeys[id] = revokeKey;
+      _pendingRevocations.add(id);
+      await _persistRevocations();
+      await _forgetLocally(id);
+    } finally {
+      _revoking.remove(id);
+    }
+    await retryPendingRevocations(peerId: id, force: true);
+  }
+
+  Future<void> reconcileRevocations(
+    Iterable<NearbyInvitation> discovered,
+  ) async {
+    final candidates = discovered.toList();
+    for (final id in _pendingRevocations.toList()) {
+      if (_sendingRevocations.contains(id)) continue;
+      final last = _revocationAttempts[id];
+      if (last != null &&
+          DateTime.now().difference(last) < const Duration(seconds: 10)) {
+        continue;
+      }
+      for (final candidate in candidates.where(
+        (candidate) => candidate.id == id,
+      )) {
+        await retryPendingRevocations(invitation: candidate, force: true);
+        if (!_pendingRevocations.contains(id)) break;
+      }
+    }
+  }
+
+  Future<void> retryPendingRevocations({
+    String? peerId,
+    NearbyInvitation? invitation,
+    bool force = false,
+  }) async {
+    for (final id in _pendingRevocations.toList()) {
+      if (peerId != null && peerId != id) continue;
+      if (invitation != null && invitation.id != id) continue;
+      if (_sendingRevocations.contains(id)) continue;
+      final now = DateTime.now();
+      final last = _revocationAttempts[id];
+      if (!force &&
+          last != null &&
+          now.difference(last) < const Duration(seconds: 10)) {
+        continue;
+      }
+      final peer = _revocations[id]!;
+      final key = _revocationKeys[id]!;
+      final hosts = invitation?.hosts ?? [peer.host];
+      final remotePort = invitation?.port ?? peer.port;
+      _sendingRevocations.add(id);
+      _revocationAttempts[id] = now;
+      try {
+        final nonce = _randomUrlSafe(32);
+        final box = await CryptoEnvelope.encryptJson(
+          {'from': deviceId, 'to': id, 'nonce': nonce},
+          key,
+          aad: 'revoke-request-v1',
+        );
+        for (final host in hosts) {
+          try {
+            final response = await _postJson(host, remotePort, '/unpair', {
+              'peer': deviceId,
+              'box': box,
+            }, timeout: const Duration(seconds: 3));
+            final ack = await CryptoEnvelope.decryptJson(
+              response,
+              key,
+              aad: 'revoke-response-v1',
+            );
+            if (ack['from'] != id ||
+                ack['to'] != deviceId ||
+                ack['nonce'] != nonce ||
+                ack['revoked'] != true) {
+              throw const FormatException(
+                'Confirmación de desvinculación inválida.',
+              );
+            }
+            // A newer revocation must never be cleared by an older response.
+            if (_revocationKeys[id] == key) {
+              _pendingRevocations.remove(id);
+              await _persistRevocations();
+              onPeersChanged?.call();
+            }
+            break;
+          } catch (_) {
+            /* Offline peers are retried after discovery or restart. */
+          }
+        }
+      } finally {
+        _sendingRevocations.remove(id);
+      }
+    }
+  }
+
+  Future<Map<String, Object?>> _handleUnpair(Map<String, dynamic> body) async {
+    final id = body['peer'] as String;
+    final currentKey = _keys[id];
+    final currentRevokeKey = currentKey == null
+        ? null
+        : await _revocationKey(currentKey, id);
+    final candidates = <String>{
+      ?currentRevokeKey,
+      if (_revocationKeys[id] != null) _revocationKeys[id]!,
+    };
+    for (final key in candidates) {
+      Map<String, dynamic> data;
+      try {
+        data = await CryptoEnvelope.decryptJson(
+          (body['box'] as Map).cast<String, dynamic>(),
+          key,
+          aad: 'revoke-request-v1',
+        );
+      } catch (_) {
+        continue;
+      }
+      if (data['from'] != id ||
+          data['to'] != deviceId ||
+          _decode64(data['nonce'] as String).length != 32) {
+        throw const FormatException('Desvinculación inválida.');
+      }
+      if (key == currentRevokeKey && _keys[id] == currentKey) {
+        if (!_revoking.add(id)) throw StateError('Desvinculación en curso.');
+        try {
+          await _storage.write('revocation-$id', key);
+          _revocations[id] = peers[id]!;
+          _revocationKeys[id] = key;
+          _pendingRevocations.remove(id);
+          await _persistRevocations();
+          await _forgetLocally(id);
+        } finally {
+          _revoking.remove(id);
+        }
+      }
+      return CryptoEnvelope.encryptJson(
+        {'from': deviceId, 'to': id, 'nonce': data['nonce'], 'revoked': true},
+        key,
+        aad: 'revoke-response-v1',
+      );
+    }
+    throw StateError('No se pudo autenticar la desvinculación.');
   }
 
   Future<void> reconnectKnownPeer(NearbyInvitation invite) async {
@@ -849,6 +1157,9 @@ class TransferService {
       for (var start = 0; start < readChunk.length; start += 128 * 1024) {
         final end = min(start + 128 * 1024, readChunk.length);
         final chunk = readChunk.sublist(start, end);
+        if (_keys[peer.id] != key) {
+          throw StateError('El dispositivo fue desvinculado.');
+        }
         final box = await CryptoEnvelope.encrypt(
           chunk,
           key,
@@ -938,6 +1249,12 @@ class TransferService {
         final result = switch (request.uri.path) {
           '/pair' => await _handlePair(body, request),
           '/pair-nearby' => await _handleNearbyPair(body, request),
+          '/pair-key' => await _handleNearbyPair(
+            body,
+            request,
+            withPairingKey: true,
+          ),
+          '/unpair' => await _handleUnpair(body),
           '/identify/start' => await _handleIdentityStart(body, request),
           '/identify/finish' => await _handleIdentityFinish(body, request),
           '/offer' => await _handleOffer(body),
@@ -1021,10 +1338,24 @@ class TransferService {
 
   Future<Map<String, Object?>> _handleNearbyPair(
     Map<String, dynamic> body,
-    HttpRequest request,
-  ) async {
+    HttpRequest request, {
+    bool withPairingKey = false,
+  }) async {
     if (!visibleOnLan || _nearbyKeyPair == null) {
       throw StateError('Este equipo no está visible en la red.');
+    }
+    final configuredKey = _pairingKey;
+    if (withPairingKey) {
+      final now = DateTime.now();
+      _pairKeyAttempts.removeWhere(
+        (time) => now.difference(time) > const Duration(minutes: 1),
+      );
+      if (configuredKey == null || _pairKeyAttempts.length >= 10) {
+        throw StateError(
+          'Vinculación con clave no disponible. Esperá un minuto o usá QR.',
+        );
+      }
+      _pairKeyAttempts.add(now);
     }
     if (_pairingBusy) throw StateError('Ya hay un emparejamiento en curso.');
     final remoteBytes = _decode64(body['publicKey'] as String);
@@ -1033,11 +1364,14 @@ class TransferService {
     }
     _pairingBusy = true;
     try {
-      final secret = await _nearbySharedSecret(_nearbyKeyPair!, remoteBytes);
+      final dhSecret = await _nearbySharedSecret(_nearbyKeyPair!, remoteBytes);
+      final secret = withPairingKey
+          ? await _keyPairingSecret(dhSecret, configuredKey!, deviceId)
+          : dhSecret;
       final data = await CryptoEnvelope.decryptJson(
         (body['box'] as Map).cast<String, dynamic>(),
         secret,
-        aad: 'pair-nearby-request-v1',
+        aad: withPairingKey ? 'pair-key-request-v1' : 'pair-nearby-request-v1',
       );
       final scannerId = data['id'] as String;
       final scannerName = data['name'] as String;
@@ -1054,9 +1388,13 @@ class TransferService {
       }
       _requireNewPeer(scannerId);
       final approved =
+          withPairingKey ||
           await (onPairRequest?.call(PairRequest(scannerName)) ??
               Future.value(false));
       if (!approved) throw StateError('Emparejamiento rechazado.');
+      if (withPairingKey && _pairingKey != configuredKey) {
+        throw StateError('La clave de vinculación cambió.');
+      }
       final hostRandom = _randomUrlSafe(32);
       final key = await _derivePeerKey(
         secret,
@@ -1077,7 +1415,9 @@ class TransferService {
       final response = await CryptoEnvelope.encryptJson(
         {'id': deviceId, 'name': deviceName, 'random': hostRandom},
         secret,
-        aad: 'pair-nearby-response-v1',
+        aad: withPairingKey
+            ? 'pair-key-response-v1'
+            : 'pair-nearby-response-v1',
       );
       await _refreshNearbyKey();
       return response;
@@ -1190,6 +1530,7 @@ class TransferService {
       throw const FormatException('Oferta de archivo inválida.');
     }
     final approved =
+        peer.trustedForFiles ||
         await (onFileOffer?.call(FileOffer(peer, name, size)) ??
             Future.value(false));
     if (!approved) {
@@ -1198,6 +1539,9 @@ class TransferService {
         key,
         aad: 'offer-response-v1',
       );
+    }
+    if (_keys[peer.id] != key || !identical(peers[peer.id], peer)) {
+      throw StateError('El dispositivo fue desvinculado.');
     }
     final dir = await downloads.stagingDirectory;
     await dir.create(recursive: true);
@@ -1229,6 +1573,9 @@ class TransferService {
     );
     if (bytes.length > 128 * 1024 || offset + bytes.length > transfer.size) {
       throw const FormatException('Bloque inválido.');
+    }
+    if (_keys[transfer.peer.id] != key || !_incoming.containsKey(id)) {
+      throw StateError('El dispositivo fue desvinculado.');
     }
     try {
       await transfer.file.writeAsBytes(

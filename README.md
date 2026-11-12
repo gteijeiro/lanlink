@@ -22,6 +22,14 @@ Las dos aplicaciones deben permanecer abiertas durante la transferencia. Si camb
 
 Los archivos recibidos con versiones anteriores se migran al nuevo destino al abrir la app. No se sobrescriben archivos con el mismo nombre. En Android moderno se publica cada archivo verificado con MediaStore, sin pedir acceso a todo el almacenamiento; las transferencias incompletas quedan privadas.
 
+## Vinculación con clave y equipos de confianza
+
+En el botón de la llave de la barra superior, activá **Permitir vinculación con clave**. LanLink genera una clave aleatoria de 256 bits con prefijo `LL1-`, guardada en el almacenamiento seguro del sistema. Copiala al otro equipo: en **Disponibles en mi red → Conectar**, pegala y elegí **Vincular con clave**. El receptor no pide confirmación. Ambos equipos deben estar abiertos en la misma red y el receptor debe tener **Visible en la red** activado. La clave nunca se anuncia por Bonjour ni se envía en texto claro. Podés desactivarla o renovarla; eso conserva los vínculos existentes. La clave no es una contraseña corta elegida a mano.
+
+En **Mis dispositivos → Opciones → Aceptar archivos automáticamente**, podés marcar un equipo como de confianza. Solo ese receptor aceptará automáticamente sus ofertas autenticadas. Los vínculos nuevos y los guardados por versiones anteriores piden aprobación por defecto. **Pedir aprobación para archivos** desactiva la confianza.
+
+**Desvincular en ambos equipos** elimina inmediatamente el vínculo y su confianza en este equipo y envía una notificación autenticada al otro. Si está desconectado, LanLink conserva una notificación pendiente y la reintenta cuando vuelve a encontrarlo, incluso después de reiniciar. Ambos deben usar esta versión o una posterior. Los archivos recibidos se conservan. Al desvincular, también se renueva la clave general de vinculación si estaba activada, para impedir que el equipo eliminado vuelva a entrar con una copia de esa clave. Los demás vínculos no se borran.
+
 ## Desarrollo
 
 Requiere Flutter 3.47 o posterior. No se genera una versión web.
@@ -51,6 +59,6 @@ El paquete queda en `build/macos-signed/dist/LanLink-macOS-signed.zip`. El scrip
 
 El protocolo v1 está descrito en [docs/protocol.md](docs/protocol.md). Usa HTTP sobre TCP para transportar mensajes cifrados por la propia aplicación. Aunque la conexión HTTP local no emplea TLS, el emparejamiento cercano usa X25519 y cada mensaje de archivo se protege con AES-256-GCM. El anuncio Bonjour contiene una clave pública temporal, nunca una clave secreta. La app guarda las claves de pares en el almacenamiento seguro del sistema. La aprobación por nombre no protege frente a un atacante activo que suplante anuncios en la red; para redes que no sean de confianza, preferí el QR. Este protocolo todavía no tiene auditoría externa; no se presenta como listo para datos de alta sensibilidad.
 
-La clave guardada de un dispositivo vinculado nunca se sustituye por otra solo porque un anuncio de red use el mismo identificador. Si uno de los equipos perdió su clave, hay que usar **Olvidar dispositivo** en ambos y vincularlos de nuevo. Para el primer vínculo en una red no confiable, usá QR: el emparejamiento por proximidad todavía requiere una verificación visual mutua para resistir a un intermediario activo. Un atacante que controle la red puede impedir o retransmitir conexiones, aunque no puede descifrar ni autenticar mensajes sin la clave del par.
+La clave guardada de un dispositivo vinculado nunca se sustituye por otra solo porque un anuncio de red use el mismo identificador. Si uno de los equipos perdió su clave, hay que desvincular el equipo anterior y vincularlo de nuevo. Para el primer vínculo en una red no confiable, usá QR: el emparejamiento por proximidad todavía requiere una verificación visual mutua para resistir a un intermediario activo. Un atacante que controle la red puede impedir o retransmitir conexiones, aunque no puede descifrar ni autenticar mensajes sin la clave del par.
 
 La publicación en las tiendas y la elección de licencia del proyecto se decidirán por separado.
