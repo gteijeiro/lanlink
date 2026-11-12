@@ -227,9 +227,10 @@ class TransferProgress {
 }
 
 class _IncomingFile {
-  _IncomingFile(this.peer, this.file, this.expectedHash, this.size);
+  _IncomingFile(this.peer, this.file, this.name, this.expectedHash, this.size);
   final Peer peer;
   final File file;
+  final String name;
   final String expectedHash;
   final int size;
   int offset = 0;
@@ -328,13 +329,16 @@ class CryptoEnvelope {
 class TransferService {
   TransferService({
     KeyValueStore? storage,
+    DownloadStorage? downloadStorage,
     this.listenPort = 47829,
     this.supportDirectory,
     this.receivedDirectory,
     this.advertisedHosts,
     this.identityName,
   }) : _storage = storage ?? SecureKeyValueStore(),
-       downloads = DownloadStorage(overrideDirectory: receivedDirectory);
+       downloads =
+           downloadStorage ??
+           DownloadStorage(overrideDirectory: receivedDirectory);
 
   final KeyValueStore _storage;
   final DownloadStorage downloads;
@@ -365,6 +369,7 @@ class TransferService {
   Future<bool> Function(PairRequest request)? onPairRequest;
   Future<bool> Function(FileOffer offer)? onFileOffer;
   void Function(TransferProgress progress)? onProgress;
+  void Function(String message)? onTransferError;
   void Function()? onPeersChanged;
   void Function(Invitation invitation)? onInvitationChanged;
   void Function()? onNearbyKeyChanged;
@@ -1200,7 +1205,7 @@ class TransferService {
     final id = _randomUrlSafe(16);
     final part = File('${destination.path}.$id.part');
     await part.create();
-    _incoming[id] = _IncomingFile(peer, part, hash, size);
+    _incoming[id] = _IncomingFile(peer, part, name, hash, size);
     return CryptoEnvelope.encryptJson(
       {'accepted': true, 'transferId': id},
       key,
@@ -1225,34 +1230,41 @@ class TransferService {
     if (bytes.length > 128 * 1024 || offset + bytes.length > transfer.size) {
       throw const FormatException('Bloque inválido.');
     }
-    await transfer.file.writeAsBytes(bytes, mode: FileMode.append, flush: true);
-    transfer.offset += bytes.length;
-    if (transfer.offset == transfer.size) {
-      final digest = await hashing.sha256.bind(transfer.file.openRead()).first;
-      if (digest.toString() != transfer.expectedHash) {
-        await transfer.file.delete();
+    try {
+      await transfer.file.writeAsBytes(
+        bytes,
+        mode: FileMode.append,
+        flush: true,
+      );
+      transfer.offset += bytes.length;
+      if (transfer.offset == transfer.size) {
+        final digest = await hashing.sha256
+            .bind(transfer.file.openRead())
+            .first;
+        if (digest.toString() != transfer.expectedHash) {
+          await transfer.file.delete();
+          _incoming.remove(id);
+          throw StateError('El archivo recibido no coincide con el original.');
+        }
+        await downloads.publish(transfer.file, transfer.name);
         _incoming.remove(id);
-        throw StateError('El archivo recibido no coincide con el original.');
       }
-      final originalName = transfer.file.path
-          .split(Platform.pathSeparator)
-          .last
-          .split('.$id.part')
-          .first;
-      await downloads.publish(transfer.file, originalName);
+      onProgress?.call(
+        TransferProgress(
+          transfer.peer.name,
+          transfer.name,
+          transfer.offset,
+          transfer.size,
+          true,
+          transfer.offset == transfer.size,
+        ),
+      );
+      return {'offset': transfer.offset};
+    } catch (error) {
       _incoming.remove(id);
+      onTransferError?.call('No se pudo recibir “${transfer.name}”: $error');
+      rethrow;
     }
-    onProgress?.call(
-      TransferProgress(
-        transfer.peer.name,
-        transfer.file.path,
-        transfer.offset,
-        transfer.size,
-        true,
-        transfer.offset == transfer.size,
-      ),
-    );
-    return {'offset': transfer.offset};
   }
 
   static String _safeName(String name) {

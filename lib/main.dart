@@ -48,6 +48,7 @@ class _HomePageState extends State<HomePage> {
   String? _error;
   String? _discoveryError;
   TransferProgress? _progress;
+  String? _transferError;
   Timer? _reconnectTimer;
   final Set<String> _reconnecting = {};
   final Map<String, DateTime> _lastReconnectAttempt = {};
@@ -61,7 +62,20 @@ class _HomePageState extends State<HomePage> {
       if (mounted) setState(() {});
     };
     _service.onProgress = (progress) {
-      if (mounted) setState(() => _progress = progress);
+      if (mounted) {
+        setState(() {
+          _progress = progress;
+          _transferError = null;
+        });
+      }
+    };
+    _service.onTransferError = (message) {
+      if (mounted) {
+        setState(() {
+          _progress = null;
+          _transferError = message;
+        });
+      }
     };
     _start();
   }
@@ -371,11 +385,20 @@ class _HomePageState extends State<HomePage> {
     try {
       final file = await openFile();
       if (file == null) return;
-      setState(() => _busy = true);
+      setState(() {
+        _busy = true;
+        _progress = null;
+        _transferError = null;
+      });
       await _service.sendFile(peer, file);
       _showMessage('Archivo enviado a ${peer.name}.');
     } catch (error) {
-      _showMessage(error.toString());
+      if (mounted) {
+        setState(() {
+          _progress = null;
+          _transferError = 'No se pudo enviar el archivo: $error';
+        });
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -601,12 +624,31 @@ class _HomePageState extends State<HomePage> {
                         padding: EdgeInsets.symmetric(vertical: 14),
                         child: LinearProgressIndicator(),
                       ),
+                    if (_transferError != null)
+                      Card(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        child: ListTile(
+                          leading: const Icon(Icons.error_outline),
+                          title: const Text('La transferencia falló'),
+                          subtitle: SelectableText(_transferError!),
+                          trailing: IconButton(
+                            tooltip: 'Cerrar error',
+                            icon: const Icon(Icons.close),
+                            onPressed: () =>
+                                setState(() => _transferError = null),
+                          ),
+                        ),
+                      ),
                     if (_progress != null) ...[
                       const SizedBox(height: 16),
                       Text(
-                        _progress!.incoming
-                            ? 'Recibiendo de ${_progress!.peerName}'
-                            : 'Enviando a ${_progress!.peerName}',
+                        _progress!.finished
+                            ? (_progress!.incoming
+                                  ? 'Archivo recibido'
+                                  : 'Archivo enviado')
+                            : (_progress!.incoming
+                                  ? 'Recibiendo de ${_progress!.peerName}'
+                                  : 'Enviando a ${_progress!.peerName}'),
                       ),
                       Text(
                         _progress!.fileName,

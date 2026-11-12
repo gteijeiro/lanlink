@@ -56,6 +56,8 @@ jobs:
       - if: matrix.target == 'linux'
         run: flutter build linux --debug
       - if: matrix.target == 'windows'
+        run: flutter test
+      - if: matrix.target == 'windows'
         run: flutter build windows --debug
       - if: matrix.target == 'macos'
         run: flutter build macos --debug

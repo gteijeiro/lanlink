@@ -6,7 +6,16 @@ import 'package:cryptography/cryptography.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lanlink/discovery_service.dart';
+import 'package:lanlink/download_storage.dart';
 import 'package:lanlink/transfer_service.dart';
+
+class FailingDownloads extends DownloadStorage {
+  FailingDownloads(Directory directory) : super(overrideDirectory: directory);
+  @override
+  Future<void> publish(File source, String name) async {
+    throw const FileSystemException('No hay espacio para guardar el archivo.');
+  }
+}
 
 class MemoryStore implements KeyValueStore {
   final values = <String, String>{};
@@ -207,6 +216,8 @@ void main() {
       expect(receiver.peers.containsKey(sender.deviceId), true);
 
       final content = List<int>.generate(300000, (index) => index % 251);
+      final receivedProgress = <TransferProgress>[];
+      receiver.onProgress = receivedProgress.add;
       final original = File('${root.path}/sample.bin')
         ..writeAsBytesSync(content);
       await sender.sendFile(
@@ -216,6 +227,52 @@ void main() {
       final received = File('${root.path}/received/sample.bin');
       expect(await received.exists(), true);
       expect(await received.readAsBytes(), content);
+      expect(receivedProgress.last.fileName, 'sample.bin');
+      expect(receivedProgress.last.finished, true);
+    },
+  );
+
+  test(
+    'Un fallo al guardar se informa a ambos lados y no marca éxito',
+    () async {
+      final root = await Directory.systemTemp.createTemp('lanlink-save-error-');
+      final sender = TransferService(
+        storage: MemoryStore(),
+        listenPort: 0,
+        supportDirectory: Directory('${root.path}/sender'),
+        receivedDirectory: Directory('${root.path}/sender-files'),
+        advertisedHosts: ['127.0.0.1'],
+        identityName: 'Emisor',
+      );
+      final receiver = TransferService(
+        storage: MemoryStore(),
+        listenPort: 0,
+        supportDirectory: Directory('${root.path}/receiver'),
+        downloadStorage: FailingDownloads(Directory('${root.path}/received')),
+        advertisedHosts: ['127.0.0.1'],
+        identityName: 'Receptor',
+      );
+      addTearDown(() async {
+        await sender.dispose();
+        await receiver.dispose();
+        await root.delete(recursive: true);
+      });
+      await sender.start();
+      await receiver.start();
+      receiver.onPairRequest = (_) async => true;
+      receiver.onFileOffer = (_) async => true;
+      String? receiveError;
+      final progress = <TransferProgress>[];
+      receiver.onTransferError = (message) => receiveError = message;
+      receiver.onProgress = progress.add;
+      await sender.pairInvitation(receiver.invitation);
+      final file = await File('${root.path}/foto.jpg').writeAsBytes([1, 2, 3]);
+      await expectLater(
+        sender.sendFile(sender.peers[receiver.deviceId]!, XFile(file.path)),
+        throwsA(isA<StateError>()),
+      );
+      expect(receiveError, contains('No hay espacio'));
+      expect(progress.where((entry) => entry.finished), isEmpty);
     },
   );
 
