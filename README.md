@@ -67,6 +67,18 @@ La clave guardada de un dispositivo vinculado nunca se sustituye por otra solo p
 
 La publicación en las tiendas y la elección de licencia del proyecto se decidirán por separado.
 
+## Interfaz
+
+La versión 1.3 organiza la app en **Dispositivos** y **Recibidos**, con navegación inferior en el teléfono y lateral en escritorio. Los archivos tienen iconos vectoriales por tipo y formato, búsqueda por nombre y filtros por categoría. Las acciones **Abrir con**, **Compartir** y **Exportar** conservan su función según la plataforma.
+
+El diseño se adapta al tamaño de ventana, al texto ampliado y al modo claro u oscuro del sistema. Para generar las vistas previas de la interfaz con datos de ejemplo:
+
+```sh
+LANLINK_DESIGN_PREVIEW=1 flutter test test/dashboard_test.dart
+```
+
+Las capturas quedan en `build/design-preview`; no contienen archivos ni dispositivos reales del usuario.
+
 ## Despliegue desde este Mac
 
 Con los cambios guardados en un commit y publicados en `origin/main`, ejecutá:

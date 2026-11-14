@@ -13,6 +13,8 @@ import 'download_storage.dart';
 import 'pairing_key_dialog.dart';
 import 'pairing_password.dart';
 import 'transfer_service.dart';
+import 'ui/app_theme.dart';
+import 'ui/lanlink_dashboard.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,55 +28,10 @@ class LanLinkApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'LanLink',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff176b61)),
-      useMaterial3: true,
-    ),
+    theme: lanLinkTheme(),
+    darkTheme: lanLinkTheme(brightness: Brightness.dark),
     home: const HomePage(),
   );
-}
-
-IconData _receivedFileIcon(String name) {
-  final extension = name.split('.').last.toLowerCase();
-  return switch (extension) {
-    'mp4' ||
-    'mov' ||
-    'm4v' ||
-    'mkv' ||
-    'webm' ||
-    'avi' ||
-    '3gp' ||
-    'mpeg' ||
-    'mpg' => Icons.video_file_outlined,
-    'jpg' ||
-    'jpeg' ||
-    'png' ||
-    'gif' ||
-    'webp' ||
-    'heic' ||
-    'heif' ||
-    'bmp' ||
-    'svg' => Icons.image_outlined,
-    'mp3' ||
-    'm4a' ||
-    'aac' ||
-    'wav' ||
-    'flac' ||
-    'ogg' ||
-    'opus' => Icons.audio_file_outlined,
-    'pdf' => Icons.picture_as_pdf_outlined,
-    'doc' ||
-    'docx' ||
-    'odt' ||
-    'txt' ||
-    'rtf' ||
-    'md' => Icons.description_outlined,
-    'xls' || 'xlsx' || 'ods' || 'csv' => Icons.table_chart_outlined,
-    'ppt' || 'pptx' || 'odp' => Icons.slideshow_outlined,
-    'zip' || 'rar' || '7z' || 'tar' || 'gz' => Icons.folder_zip_outlined,
-    'json' || 'xml' || 'html' || 'css' || 'js' || 'py' || 'dart' => Icons.code,
-    _ => Icons.insert_drive_file_outlined,
-  };
 }
 
 class HomePage extends StatefulWidget {
@@ -589,6 +546,32 @@ class _HomePageState extends State<HomePage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _peerAction(Peer peer, String choice) async {
+    try {
+      if (choice == 'remove') {
+        await _service.removePeer(peer.id);
+        _showMessage(
+          _service.pendingRevocations.contains(peer.id)
+              ? 'Desvinculado aquí. Se avisará al otro equipo cuando vuelva a estar disponible.'
+              : 'Dispositivos desvinculados.',
+        );
+      } else if (choice == 'trust') {
+        await _setTrusted(peer);
+      }
+    } catch (error) {
+      _showMessage(error.toString());
+    }
+  }
+
+  Future<void> _chooseDownloads() async {
+    try {
+      await _service.downloads.chooseDirectory();
+      if (mounted) setState(() {});
+    } catch (error) {
+      _showMessage(error.toString());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final peers = _service.peers.values.toList()
@@ -599,340 +582,36 @@ class _HomePageState extends State<HomePage> {
             .toList() ??
         [];
     nearby.sort((a, b) => a.name.compareTo(b.name));
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('LanLink'),
-        actions: [
-          IconButton(
-            tooltip: 'Clave de vinculación',
-            icon: const Icon(Icons.key),
-            onPressed: _loading || _busy ? null : _configurePairingKey,
-          ),
-        ],
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 800),
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-              ? Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: SelectableText('No se pudo iniciar: $_error'),
-                )
-              : ListView(
-                  padding: EdgeInsets.fromLTRB(
-                    20,
-                    20,
-                    20,
-                    20 + MediaQuery.paddingOf(context).bottom,
-                  ),
-                  children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Este dispositivo',
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                            const SizedBox(height: 5),
-                            Row(
-                              children: [
-                                Expanded(child: Text(_service.deviceName)),
-                                IconButton(
-                                  tooltip: 'Editar nombre',
-                                  onPressed: _editDeviceName,
-                                  icon: const Icon(Icons.edit_outlined),
-                                ),
-                              ],
-                            ),
-                            SwitchListTile.adaptive(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('Visible en la red'),
-                              subtitle: const Text(
-                                'Otros equipos con LanLink podrán encontrarte mientras la app esté abierta.',
-                              ),
-                              value: _service.visibleOnLan,
-                              onChanged: _discovery == null
-                                  ? null
-                                  : _setVisibleOnLan,
-                            ),
-                            const SizedBox(height: 14),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: [
-                                FilledButton.icon(
-                                  onPressed: _busy ? null : _showQr,
-                                  icon: const Icon(Icons.qr_code),
-                                  label: const Text('Mostrar mi QR'),
-                                ),
-                                OutlinedButton.icon(
-                                  onPressed: _busy ? null : _scanQr,
-                                  icon: const Icon(Icons.qr_code_scanner),
-                                  label: const Text('Escanear QR'),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Ambos equipos deben estar en la misma red local y tener la app abierta.',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '¿No podés escanear?',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _linkController,
-                      decoration: InputDecoration(
-                        border: const OutlineInputBorder(),
-                        labelText: 'Pegá aquí el enlace del QR',
-                        suffixIcon: IconButton(
-                          tooltip: 'Emparejar',
-                          onPressed: _busy
-                              ? null
-                              : () => _pair(_linkController.text),
-                          icon: const Icon(Icons.link),
-                        ),
-                      ),
-                      onSubmitted: _busy ? null : _pair,
-                    ),
-                    const SizedBox(height: 22),
-                    Text(
-                      'Disponibles en mi red',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    if (_discoveryError != null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Text(
-                          'No se pudo buscar dispositivos: $_discoveryError',
-                        ),
-                      )
-                    else if (nearby.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 18),
-                        child: Text('No hay otros equipos visibles por ahora.'),
-                      ),
-                    for (final device in nearby)
-                      Card(
-                        child: ListTile(
-                          leading: const CircleAvatar(child: Icon(Icons.wifi)),
-                          title: Text(device.name),
-                          subtitle: const Text('Disponible en la red local'),
-                          trailing: FilledButton(
-                            onPressed: _busy
-                                ? null
-                                : () => _pairNearby(device.invitation),
-                            child: const Text('Conectar'),
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Mis dispositivos',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    if (_service.pendingRevocations.isNotEmpty)
-                      Text(
-                        '${_service.pendingRevocations.length} desvinculación(es) pendiente(s). Se avisará al otro equipo cuando vuelva a estar disponible.',
-                      ),
-                    if (peers.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 18),
-                        child: Text('Todavía no hay dispositivos emparejados.'),
-                      ),
-                    for (final peer in peers)
-                      Card(
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            child: Icon(Icons.devices),
-                          ),
-                          title: Text(peer.name),
-                          subtitle: Text(
-                            '${peer.trustedForFiles ? 'De confianza · ' : ''}${peer.verified ? 'Identidad verificada · ${peer.host}:${peer.port}' : 'Buscando en la red · Última IP: ${peer.host}'}',
-                          ),
-                          trailing: Wrap(
-                            spacing: 4,
-                            children: [
-                              IconButton(
-                                tooltip: 'Enviar archivo',
-                                onPressed: _busy ? null : () => _send(peer),
-                                icon: const Icon(Icons.upload_file),
-                              ),
-                              PopupMenuButton<String>(
-                                tooltip: 'Opciones',
-                                onSelected: (choice) async {
-                                  try {
-                                    if (choice == 'remove') {
-                                      await _service.removePeer(peer.id);
-                                      _showMessage(
-                                        _service.pendingRevocations.contains(
-                                              peer.id,
-                                            )
-                                            ? 'Desvinculado aquí. Se avisará al otro equipo cuando vuelva a estar disponible.'
-                                            : 'Dispositivos desvinculados.',
-                                      );
-                                    } else if (choice == 'trust') {
-                                      await _setTrusted(peer);
-                                    }
-                                  } catch (error) {
-                                    _showMessage(error.toString());
-                                  }
-                                },
-                                itemBuilder: (_) => [
-                                  PopupMenuItem(
-                                    value: 'trust',
-                                    child: Text(
-                                      peer.trustedForFiles
-                                          ? 'Pedir aprobación para archivos'
-                                          : 'Aceptar archivos automáticamente',
-                                    ),
-                                  ),
-                                  const PopupMenuItem(
-                                    value: 'remove',
-                                    child: Text('Desvincular en ambos equipos'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    if (_busy)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 14),
-                        child: LinearProgressIndicator(),
-                      ),
-                    if (_transferError != null)
-                      Card(
-                        color: Theme.of(context).colorScheme.errorContainer,
-                        child: ListTile(
-                          leading: const Icon(Icons.error_outline),
-                          title: const Text('La transferencia falló'),
-                          subtitle: SelectableText(_transferError!),
-                          trailing: IconButton(
-                            tooltip: 'Cerrar error',
-                            icon: const Icon(Icons.close),
-                            onPressed: () =>
-                                setState(() => _transferError = null),
-                          ),
-                        ),
-                      ),
-                    if (_progress != null) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        _progress!.finished
-                            ? (_progress!.incoming
-                                  ? 'Archivo recibido'
-                                  : 'Archivo enviado')
-                            : (_progress!.incoming
-                                  ? 'Recibiendo de ${_progress!.peerName}'
-                                  : 'Enviando a ${_progress!.peerName}'),
-                      ),
-                      Text(
-                        _progress!.fileName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 5),
-                      LinearProgressIndicator(
-                        value: _progress!.total == 0
-                            ? 1
-                            : _progress!.done / _progress!.total,
-                      ),
-                      Text(
-                        '${_size(_progress!.done)} / ${_size(_progress!.total)}',
-                      ),
-                    ],
-                    const SizedBox(height: 22),
-                    Text(
-                      'Archivos recibidos',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    Text('Destino: ${_service.downloads.label}'),
-                    if (Platform.isIOS)
-                      TextButton.icon(
-                        icon: const Icon(Icons.folder_open),
-                        label: const Text('Elegir carpeta Descargas'),
-                        onPressed: _busy
-                            ? null
-                            : () async {
-                                try {
-                                  await _service.downloads.chooseDirectory();
-                                  if (mounted) setState(() {});
-                                } catch (error) {
-                                  _showMessage(error.toString());
-                                }
-                              },
-                      ),
-                    FutureBuilder<List<ReceivedDownload>>(
-                      future: _service.receivedFiles(),
-                      builder: (context, snapshot) {
-                        if (snapshot.hasError) {
-                          return Text(
-                            'No se pudieron leer las descargas: ${snapshot.error}',
-                          );
-                        }
-                        final files = snapshot.data ?? [];
-                        if (files.isEmpty) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 18),
-                            child: Text('Todavía no recibiste archivos.'),
-                          );
-                        }
-                        return Column(
-                          children: [
-                            for (final file in files)
-                              ListTile(
-                                leading: Icon(_receivedFileIcon(file.name)),
-                                title: Text(file.name),
-                                onTap: Platform.isAndroid
-                                    ? () => _openReceived(file)
-                                    : null,
-                                subtitle: Wrap(
-                                  spacing: 8,
-                                  children: [
-                                    if (Platform.isAndroid)
-                                      TextButton.icon(
-                                        icon: const Icon(Icons.open_in_new),
-                                        label: const Text('Abrir con'),
-                                        onPressed: () => _openReceived(file),
-                                      ),
-                                    TextButton.icon(
-                                      icon: Icon(
-                                        Platform.isAndroid || Platform.isIOS
-                                            ? Icons.share_outlined
-                                            : Icons.file_download_outlined,
-                                      ),
-                                      label: Text(
-                                        Platform.isAndroid || Platform.isIOS
-                                            ? 'Compartir'
-                                            : 'Exportar',
-                                      ),
-                                      onPressed: () => _export(file),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-                ),
-        ),
-      ),
+    return LanLinkDashboard(
+      deviceName: _service.deviceName,
+      visible: _service.visibleOnLan,
+      peers: peers,
+      nearby: nearby,
+      files: _loading || _error != null
+          ? Future.value([])
+          : _service.receivedFiles(),
+      downloadsLabel: _service.downloads.label,
+      linkController: _linkController,
+      onEditName: _editDeviceName,
+      onVisibleChanged: _discovery == null ? null : _setVisibleOnLan,
+      onShowQr: _showQr,
+      onScanQr: _scanQr,
+      onConfigureKey: _configurePairingKey,
+      onPairLink: _pair,
+      onPairNearby: (device) => _pairNearby(device.invitation),
+      onSend: _send,
+      onPeerAction: _peerAction,
+      onOpenFile: _openReceived,
+      onExportFile: _export,
+      onClearError: () => setState(() => _transferError = null),
+      onChooseDownloads: Platform.isIOS ? _chooseDownloads : null,
+      loading: _loading,
+      busy: _busy,
+      startupError: _error,
+      discoveryError: _discoveryError,
+      transferError: _transferError,
+      progress: _progress,
+      pendingRevocations: _service.pendingRevocations.length,
     );
   }
 
