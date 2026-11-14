@@ -13,11 +13,16 @@ import plistlib
 import re
 import shutil
 import signal
+import ssl
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_LOCK = threading.Lock()
@@ -199,10 +204,103 @@ class Target:
             raise DeploymentError('Tiempo agotado esperando la compilación de GitHub.')
         # Downloads go into an empty folder to prevent accidental reuse.
         folder = Path(tempfile.mkdtemp(prefix='artifact-', dir=self.cache))
-        self.run(['gh', 'run', 'download', run_id, '-n', artifact_name, '-D', folder], timeout=600)
+        try:
+            self.run(['gh', 'run', 'download', run_id, '-n', artifact_name, '-D', folder], timeout=90)
+        except DeploymentError:
+            self.say('La descarga normal falló o demoró demasiado; recuperando por partes con verificación SHA256 de GitHub.')
+            self.download_in_parts(run_id, artifact_name, filename, folder)
         shutil.copy2(folder / filename, artifact)
         self.manifest(artifact, run_id=run_id)
         return artifact
+
+    def signed_artifact_url(self, artifact, context):
+        # Never forward GitHub credentials to the artifact storage host or logs.
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        api = urllib.parse.urlsplit(artifact['archive_download_url'])
+        if api.scheme != 'https' or api.hostname != 'api.github.com':
+            raise DeploymentError('La descarga alternativa requiere GitHub.com.')
+        token = subprocess.run(['gh', 'auth', 'token', '--hostname', 'github.com'],
+                               capture_output=True, text=True, timeout=20)
+        if token.returncode or not token.stdout.strip():
+            raise DeploymentError('No se pudo autorizar la descarga de GitHub.')
+        opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=context))
+        request = urllib.request.Request(artifact['archive_download_url'] + '?fresh=' + str(time.time_ns()),
+                                        headers={'Authorization': 'Bearer ' + token.stdout.strip()})
+        try:
+            opener.open(request, timeout=30).close()
+        except urllib.error.HTTPError as error:
+            if error.code == 302:
+                url = error.headers.get('Location', '')
+                if urllib.parse.urlsplit(url).scheme == 'https':
+                    return url
+        except Exception:
+            pass
+        raise DeploymentError('GitHub no entregó una dirección válida para descargar el paquete.')
+
+    def download_in_parts(self, run_id, artifact_name, filename, folder):
+        repo = self.run(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']).strip()
+        metadata = json.loads(self.run(['gh', 'api', f'repos/{repo}/actions/runs/{run_id}/artifacts']))
+        matches = [item for item in metadata['artifacts'] if item['name'] == artifact_name and not item['expired']]
+        if len(matches) != 1:
+            raise DeploymentError('No se encontró un único paquete vigente en GitHub.')
+        artifact = matches[0]
+        expected = artifact.get('digest', '')
+        if not re.fullmatch(r'sha256:[a-f0-9]{64}', expected):
+            raise DeploymentError('GitHub no publicó una huella SHA256 para verificar la descarga alternativa.')
+        # Python installations on macOS may omit the system certificate bundle.
+        context = ssl.create_default_context(cafile='/etc/ssl/cert.pem' if Path('/etc/ssl/cert.pem').is_file() else None)
+        url = self.signed_artifact_url(artifact, context)
+        total, chunk = artifact['size_in_bytes'], 512 * 1024
+        if not 0 < total <= 2 * 1024 ** 3:
+            raise DeploymentError('Tamaño del paquete fuera de los límites de descarga.')
+        parts = Path(tempfile.mkdtemp(prefix='parts-', dir=folder))
+        deadline = time.monotonic() + 480
+
+        def fetch(index):
+            first, last = index * chunk, min(total - 1, (index + 1) * chunk - 1)
+            for attempt in range(3):
+                if time.monotonic() > deadline:
+                    raise DeploymentError('Tiempo agotado recuperando el paquete de GitHub.')
+                try:
+                    request = urllib.request.Request(url, headers={'Range': f'bytes={first}-{last}'})
+                    with urllib.request.urlopen(request, context=context, timeout=30) as response:
+                        if response.status != 206 or response.headers.get('Content-Range') != f'bytes {first}-{last}/{total}':
+                            raise ValueError('Rango incorrecto')
+                        data = bytearray()
+                        while len(data) < last - first + 1:
+                            if time.monotonic() > deadline:
+                                raise TimeoutError()
+                            block = response.read(min(65536, last - first + 1 - len(data)))
+                            if not block:
+                                raise ValueError('Rango incompleto')
+                            data.extend(block)
+                    (parts / str(index)).write_bytes(data)
+                    return len(data)
+                except Exception:
+                    if attempt == 2 or time.monotonic() > deadline:
+                        raise DeploymentError(f'No se pudo descargar el bloque {index}; no se instala un paquete incompleto.') from None
+                    time.sleep(2)
+        count, received, last_percent = (total + chunk - 1) // chunk, 0, -10
+        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
+            futures = [pool.submit(fetch, index) for index in range(count)]
+            for future in concurrent.futures.as_completed(futures):
+                received += future.result()
+                percent = received * 100 // total
+                if percent >= last_percent + 10 or received == total:
+                    self.say(f'Descarga por bloques: {percent}%')
+                    last_percent = percent
+        archive = parts / 'artifact.zip'
+        with archive.open('wb') as output:
+            for index in range(count):
+                output.write((parts / str(index)).read_bytes())
+        if 'sha256:' + digest(archive) != expected:
+            raise DeploymentError('La descarga no coincide con la huella SHA256 de GitHub; no se instala.')
+        with zipfile.ZipFile(archive) as zipped:
+            with zipped.open(filename) as source, (folder / filename).open('wb') as output:
+                shutil.copyfileobj(source, output)
+        self.say('Paquete recuperado y SHA256 de GitHub verificado.')
 
     def wait(self, action, instruction):
         deadline = time.monotonic() + self.args.wait_timeout

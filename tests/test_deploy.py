@@ -2,9 +2,14 @@ import argparse
 import concurrent.futures
 import importlib.util
 import json
+import hashlib
+import http.server
+import io
 from pathlib import Path
 import tempfile
 import unittest
+import threading
+import zipfile
 from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location('deploy', Path(__file__).resolve().parents[1] / 'scripts/deploy.py')
@@ -119,6 +124,41 @@ class DeployTests(unittest.TestCase):
             self.assertTrue(deploy.valid_address(value))
         for value in ['--help', '192.168.1.1:0', '192.168.1.1:65536', 'a:123\nother']:
             self.assertFalse(deploy.valid_address(value))
+
+    def test_parallel_download_validates_archive_before_extracting(self):
+        content = bytes(range(256)) * 6000
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w') as archive:
+            archive.writestr('app-release.apk', content)
+        payload = buffer.getvalue()
+        class RangeServer(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                first, last = map(int, self.headers['Range'].removeprefix('bytes=').split('-'))
+                self.send_response(206)
+                self.send_header('Content-Range', f'bytes {first}-{last}/{len(payload)}')
+                self.end_headers()
+                self.wfile.write(payload[first:last + 1])
+            def log_message(self, *args):
+                pass
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), RangeServer)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        target = self.android_target()
+        artifact = {'name': 'test', 'expired': False, 'size_in_bytes': len(payload),
+                    'digest': 'sha256:' + hashlib.sha256(payload).hexdigest()}
+        target.run = lambda args, **kwargs: 'owner/repo' if args[1] == 'repo' else json.dumps({'artifacts': [artifact]})
+        target.signed_artifact_url = lambda *args: f'http://127.0.0.1:{server.server_port}/archive'
+        folder = self.root / 'download'
+        folder.mkdir()
+        target.download_in_parts(1, 'test', 'app-release.apk', folder)
+        self.assertEqual((folder / 'app-release.apk').read_bytes(), content)
+        (folder / 'app-release.apk').unlink()
+        artifact['digest'] = 'sha256:' + '0' * 64
+        with self.assertRaisesRegex(deploy.DeploymentError, 'SHA256'):
+            target.download_in_parts(1, 'test', 'app-release.apk', folder)
+        self.assertFalse((folder / 'app-release.apk').exists())
 
 
 if __name__ == '__main__':
