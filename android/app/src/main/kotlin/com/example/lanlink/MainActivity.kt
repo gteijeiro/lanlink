@@ -1,5 +1,9 @@
 package com.example.lanlink
 
+import android.content.Intent
+import android.content.ClipData
+import android.content.ActivityNotFoundException
+import androidx.core.content.FileProvider
 import android.Manifest
 import android.content.ContentValues
 import android.content.pm.PackageManager
@@ -25,7 +29,41 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lanlink/downloads")
             .setMethodCallHandler { call, result ->
-                if (call.method == "initialize" && Build.VERSION.SDK_INT < 29 &&
+                if (call.method == "open") {
+                    try {
+                        val location = call.argument<String>("location")!!
+                        val uri: Uri
+                        val name: String
+                        if (Build.VERSION.SDK_INT >= 29) {
+                            uri = Uri.parse(location)
+                            require(uri.scheme == "content" && uri.authority == MediaStore.AUTHORITY)
+                            name = contentResolver.query(uri, arrayOf("_display_name", "relative_path"), null, null, null)!!.use {
+                                check(it.moveToFirst() && it.getString(1) == relativePath)
+                                safeName(it.getString(0))
+                            }
+                        } else {
+                            val file = File(location).canonicalFile
+                            require(file.parentFile == legacyDirectory().canonicalFile)
+                            name = file.name
+                            uri = FileProvider.getUriForFile(this, "$packageName.receivedfiles", file)
+                        }
+                        val mime = contentResolver.getType(uri) ?: MimeTypeMap.getSingleton()
+                            .getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
+                        val view = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, mime)
+                            clipData = ClipData.newRawUri(name, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(view, "Abrir con").apply {
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        })
+                        result.success(null)
+                    } catch (_: ActivityNotFoundException) {
+                        result.error("no_viewer", "No hay una aplicación compatible para abrir este archivo.", null)
+                    } catch (error: Exception) {
+                        result.error("open", error.message, null)
+                    }
+                } else if (call.method == "initialize" && Build.VERSION.SDK_INT < 29 &&
                     checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                     if (pendingPermission != null) {
                         result.error("busy", "Ya hay una solicitud de permiso abierta.", null)

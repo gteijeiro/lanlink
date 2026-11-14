@@ -135,6 +135,10 @@ class DownloadStorage {
     return files;
   }
 
+  Future<void> open(ReceivedDownload file) async {
+    await _channel.invokeMethod<void>('open', {'location': file.location});
+  }
+
   Future<XFile> forExport(ReceivedDownload file) async {
     if (!_native) return XFile(file.location);
     final path = await _channel.invokeMethod<String>('export', {

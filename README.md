@@ -66,3 +66,31 @@ El protocolo v1 está descrito en [docs/protocol.md](docs/protocol.md). Usa HTTP
 La clave guardada de un dispositivo vinculado nunca se sustituye por otra solo porque un anuncio de red use el mismo identificador. Si uno de los equipos perdió su clave, hay que desvincular el equipo anterior y vincularlo de nuevo. Para el primer vínculo en una red no confiable, usá QR: el emparejamiento por proximidad todavía requiere una verificación visual mutua para resistir a un intermediario activo. Un atacante que controle la red puede impedir o retransmitir conexiones, aunque no puede descifrar ni autenticar mensajes sin la clave del par.
 
 La publicación en las tiendas y la elección de licencia del proyecto se decidirán por separado.
+
+## Despliegue desde este Mac
+
+Con los cambios guardados en un commit y publicados en `origin/main`, ejecutá:
+
+```sh
+python3 scripts/deploy.py
+```
+
+No usa modelos ni APIs de IA. Ejecuta compilaciones locales firmadas para Mac/iPhone y reutiliza o solicita los instaladores de GitHub Actions del **mismo commit** para Android/Windows. Requiere Python 3.11+, Flutter, Xcode con la cuenta Apple configurada, un certificado Apple Development válido, `gh` autenticado, `adb` y Parallels para Windows. El SDK Flutter de este workspace se detecta automáticamente; en otro Mac se puede indicar `--flutter` y, si hace falta, `--identity`/`--team`. Las claves privadas y contraseñas de firma no se guardan en el script.
+
+Cada equipo se procesa independientemente. En Terminal, si falta desbloquear o autorizar un dispositivo, podés elegir **reintentar**, **esperar** o **saltear**; los otros equipos continúan. La confianza del desarrollador en el iPhone y la vinculación inicial de ADB siguen requiriendo intervención en el teléfono; el script no las saltea ni pide contraseñas. No desinstala Android para resolver diferencias de firma, porque eso borraría datos.
+
+Ejemplos:
+
+```sh
+python3 scripts/deploy.py --devices android
+python3 scripts/deploy.py --devices macos,windows,android
+python3 scripts/deploy.py --non-interactive --wait-timeout 60
+python3 scripts/deploy.py --android 192.168.1.134:PUERTO --ios UDID --vm 'Windows 11 Home'
+python3 scripts/deploy.py --plan
+```
+
+`--non-interactive` espera hasta el límite configurado y saltea lo que siga bloqueado. Los logs por equipo y `summary.json` quedan en `build/deploy/logs/FECHA-HORA`; nunca se agregan al repositorio. Códigos de salida: **0** todos verificados, **1** algún fallo, **2** algún equipo saltado. El resumen indica qué se comprobó (firma/perfil, versión/build, instalación y arranque), no certifica todas las funciones de la app ni los formatos de video del reproductor instalado. Un proceso abierto tampoco garantiza que el usuario vea la pantalla principal si el teléfono está bloqueado.
+
+Los paquetes se guardan por commit en `build/deploy/cache` y se verifican sus hashes antes de reutilizarlos. `--rebuild` recompila los paquetes locales de Apple, útil para renovar un perfil vencido. El perfil iOS debe incluir el dispositivo y seguir vigente. La app del Mac conserva un respaldo del ejecutable previo para volver atrás si falla el arranque. Los archivos recibidos y el llavero no se borran. Linux se verifica en CI; este comando no inventa un equipo Linux de destino.
+
+En Android, tocar un archivo recibido o **Abrir con** abre el selector de aplicaciones compatibles con permiso de lectura del archivo. El botón de compartir sigue separado. Un formato o códec no soportado por el reproductor puede seguir necesitando otra aplicación; LanLink no modifica ni convierte el video original.

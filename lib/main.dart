@@ -504,6 +504,16 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _openReceived(ReceivedDownload file) async {
+    try {
+      await _service.downloads.open(file);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _transferError = 'No se pudo abrir el archivo: $error');
+      }
+    }
+  }
+
   Future<void> _export(ReceivedDownload file) async {
     try {
       final exported = await _service.downloads.forExport(file);
@@ -841,14 +851,29 @@ class _HomePageState extends State<HomePage> {
                                   Icons.insert_drive_file_outlined,
                                 ),
                                 title: Text(file.name),
-                                trailing: IconButton(
-                                  tooltip: Platform.isAndroid || Platform.isIOS
-                                      ? 'Compartir o guardar'
-                                      : 'Exportar',
-                                  icon: const Icon(
-                                    Icons.file_download_outlined,
-                                  ),
-                                  onPressed: () => _export(file),
+                                onTap: Platform.isAndroid
+                                    ? () => _openReceived(file)
+                                    : null,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (Platform.isAndroid)
+                                      IconButton(
+                                        tooltip: 'Abrir con',
+                                        icon: const Icon(Icons.open_in_new),
+                                        onPressed: () => _openReceived(file),
+                                      ),
+                                    IconButton(
+                                      tooltip:
+                                          Platform.isAndroid || Platform.isIOS
+                                          ? 'Compartir o guardar'
+                                          : 'Exportar',
+                                      icon: const Icon(
+                                        Icons.file_download_outlined,
+                                      ),
+                                      onPressed: () => _export(file),
+                                    ),
+                                  ],
                                 ),
                               ),
                           ],

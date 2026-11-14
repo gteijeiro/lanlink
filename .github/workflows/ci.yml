@@ -19,6 +19,7 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      - run: python3 -m unittest discover -s tests -v
 
   build:
     strategy:
