@@ -34,6 +34,49 @@ class LanLinkApp extends StatelessWidget {
   );
 }
 
+IconData _receivedFileIcon(String name) {
+  final extension = name.split('.').last.toLowerCase();
+  return switch (extension) {
+    'mp4' ||
+    'mov' ||
+    'm4v' ||
+    'mkv' ||
+    'webm' ||
+    'avi' ||
+    '3gp' ||
+    'mpeg' ||
+    'mpg' => Icons.video_file_outlined,
+    'jpg' ||
+    'jpeg' ||
+    'png' ||
+    'gif' ||
+    'webp' ||
+    'heic' ||
+    'heif' ||
+    'bmp' ||
+    'svg' => Icons.image_outlined,
+    'mp3' ||
+    'm4a' ||
+    'aac' ||
+    'wav' ||
+    'flac' ||
+    'ogg' ||
+    'opus' => Icons.audio_file_outlined,
+    'pdf' => Icons.picture_as_pdf_outlined,
+    'doc' ||
+    'docx' ||
+    'odt' ||
+    'txt' ||
+    'rtf' ||
+    'md' => Icons.description_outlined,
+    'xls' || 'xlsx' || 'ods' || 'csv' => Icons.table_chart_outlined,
+    'ppt' || 'pptx' || 'odp' => Icons.slideshow_outlined,
+    'zip' || 'rar' || '7z' || 'tar' || 'gz' => Icons.folder_zip_outlined,
+    'json' || 'xml' || 'html' || 'css' || 'js' || 'py' || 'dart' => Icons.code,
+    _ => Icons.insert_drive_file_outlined,
+  };
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -578,7 +621,12 @@ class _HomePageState extends State<HomePage> {
                   child: SelectableText('No se pudo iniciar: $_error'),
                 )
               : ListView(
-                  padding: const EdgeInsets.all(20),
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    20,
+                    20,
+                    20 + MediaQuery.paddingOf(context).bottom,
+                  ),
                   children: [
                     Card(
                       child: Padding(
@@ -847,29 +895,30 @@ class _HomePageState extends State<HomePage> {
                           children: [
                             for (final file in files)
                               ListTile(
-                                leading: const Icon(
-                                  Icons.insert_drive_file_outlined,
-                                ),
+                                leading: Icon(_receivedFileIcon(file.name)),
                                 title: Text(file.name),
                                 onTap: Platform.isAndroid
                                     ? () => _openReceived(file)
                                     : null,
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                                subtitle: Wrap(
+                                  spacing: 8,
                                   children: [
                                     if (Platform.isAndroid)
-                                      IconButton(
-                                        tooltip: 'Abrir con',
+                                      TextButton.icon(
                                         icon: const Icon(Icons.open_in_new),
+                                        label: const Text('Abrir con'),
                                         onPressed: () => _openReceived(file),
                                       ),
-                                    IconButton(
-                                      tooltip:
-                                          Platform.isAndroid || Platform.isIOS
-                                          ? 'Compartir o guardar'
-                                          : 'Exportar',
-                                      icon: const Icon(
-                                        Icons.file_download_outlined,
+                                    TextButton.icon(
+                                      icon: Icon(
+                                        Platform.isAndroid || Platform.isIOS
+                                            ? Icons.share_outlined
+                                            : Icons.file_download_outlined,
+                                      ),
+                                      label: Text(
+                                        Platform.isAndroid || Platform.isIOS
+                                            ? 'Compartir'
+                                            : 'Exportar',
                                       ),
                                       onPressed: () => _export(file),
                                     ),
