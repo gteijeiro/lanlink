@@ -71,6 +71,55 @@ class DeployTests(unittest.TestCase):
     def test_powershell_literals_escape_apostrophes(self):
         self.assertEqual(deploy.quote_ps("a'b"), "'a''b'")
 
+    def android_target(self):
+        target = self.target('android')
+        target.args.config = str(self.root / 'settings.json')
+        target.args.android = None
+        target.args.android_serial = None
+        return target
+
+    def test_android_prompt_saves_verified_address_and_identity(self):
+        target = self.android_target()
+        target.args.non_interactive = False
+        def command(args, **kwargs):
+            if args[-1] == 'devices':
+                return 'List of devices attached\n'
+            if args[-1] == 'get-state':
+                return 'device\n'
+            if args[-1] == 'ro.serialno':
+                return 'PHONE123\n'
+            return ''
+        target.run = command
+        with patch.object(deploy.sys.stdin, 'isatty', return_value=True), patch('builtins.input', return_value='192.168.1.134:40321'):
+            self.assertEqual(target.android_device(), '192.168.1.134:40321')
+        settings = Path(target.args.config)
+        self.assertEqual(json.loads(settings.read_text())['android'], {'address': '192.168.1.134:40321', 'serial': 'PHONE123'})
+        self.assertEqual(settings.stat().st_mode & 0o777, 0o600)
+
+    def test_android_saved_identity_rejects_other_phone(self):
+        target = self.android_target()
+        target.remember_android('192.168.1.1:12345', 'ORIGINAL')
+        target.args.android = '192.168.1.2:23456'
+        target.run = lambda args, **kwargs: 'device' if args[-1] == 'get-state' else 'OTHER'
+        with self.assertRaisesRegex(deploy.DeploymentError, 'identidad'):
+            target.android_device()
+        self.assertEqual(json.loads(Path(target.args.config).read_text())['android']['serial'], 'ORIGINAL')
+
+    def test_android_skip_propagates_without_second_prompt(self):
+        target = self.android_target()
+        target.args.non_interactive = False
+        target.run = lambda args, **kwargs: 'List of devices attached\n' if args[-1] == 'devices' else ''
+        with patch.object(deploy.sys.stdin, 'isatty', return_value=True), patch('builtins.input', return_value='s') as prompt:
+            with self.assertRaises(deploy.Skipped):
+                target.wait(target.android_device, 'Conectar Android')
+        self.assertEqual(prompt.call_count, 1)
+
+    def test_android_addresses_reject_invalid_ports_and_options(self):
+        for value in ['192.168.1.134:40321', '[fe80::1]:40321']:
+            self.assertTrue(deploy.valid_address(value))
+        for value in ['--help', '192.168.1.1:0', '192.168.1.1:65536', 'a:123\nother']:
+            self.assertFalse(deploy.valid_address(value))
+
 
 if __name__ == '__main__':
     unittest.main()

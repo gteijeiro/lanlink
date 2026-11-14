@@ -32,6 +32,16 @@ class Skipped(DeploymentError):
     pass
 
 
+class RetryLater(DeploymentError):
+    pass
+
+
+def valid_address(value):
+    # Accept IPv4, bracketed IPv6, and local DNS names; never command options.
+    return bool(re.fullmatch(r'(?:[A-Za-z0-9][A-Za-z0-9.-]*|\[[A-Fa-f0-9:%]+\]):[0-9]{1,5}', value)
+                and 1 <= int(value.rsplit(':', 1)[1]) <= 65535)
+
+
 def digest(path):
     with Path(path).open('rb') as file:
         return hashlib.file_digest(file, 'sha256').hexdigest()
@@ -199,11 +209,13 @@ class Target:
         while True:
             try:
                 return action()
+            except Skipped:
+                raise
             except DeploymentError as error:
                 self.say(f'Esperando intervención: {instruction}\n{error}')
                 if time.monotonic() >= deadline:
                     raise Skipped(f'Tiempo de espera agotado: {instruction}') from error
-                choice = retry_action(self.args, self.name, instruction)
+                choice = 'wait' if isinstance(error, RetryLater) else retry_action(self.args, self.name, instruction)
                 if choice == 'skip':
                     raise Skipped(instruction) from error
                 if choice == 'wait':
@@ -262,33 +274,95 @@ class Target:
             raise
         self.result['verification'] = 'signature, team, bundle ID, version, running process'
 
+    def android_settings(self):
+        path = Path(getattr(self.args, 'config', Path.home() / '.config/lanlink/deploy.json')).expanduser()
+        if not path.exists():
+            return path, {}
+        try:
+            data = json.loads(path.read_text())
+            if not isinstance(data, dict):
+                raise ValueError('El archivo debe contener un objeto JSON.')
+            android = data.get('android', {})
+            if not isinstance(android, dict) or any(not isinstance(android[key], str) for key in ('serial', 'address') if key in android):
+                raise ValueError('La configuración Android debe contener identidad y dirección como texto.')
+            return path, data
+        except (ValueError, OSError) as error:
+            raise DeploymentError(f'No se puede leer la configuración {path}: {error}') from error
+
+    def remember_android(self, address, serial):
+        path, settings = self.android_settings()
+        android = settings.setdefault('android', {})
+        android['serial'] = serial
+        if valid_address(address):
+            android['address'] = address
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(settings, indent=2))
+        temporary.chmod(0o600)
+        temporary.replace(path)
+        self.say(f'Identidad y dirección Android guardadas en {path}')
+
     def android_device(self):
+        _, settings = self.android_settings()
+        saved = settings.get('android', {})
+        expected = getattr(self.args, 'android_serial', None) or saved.get('serial')
         self.run(['adb', 'start-server'])
-        if self.args.android:
-            self.run(['adb', 'connect', self.args.android], timeout=30)
-            state = self.run(['adb', '-s', self.args.android, 'get-state'], timeout=20).strip()
-            if state != 'device':
+
+        def verify(address):
+            self.run(['adb', 'connect', address], timeout=15)
+            if self.run(['adb', '-s', address, 'get-state'], timeout=15).strip() != 'device':
                 raise DeploymentError('Android todavía no autorizó este Mac.')
-            return self.args.android
-        else:
+            serial = self.run(['adb', '-s', address, 'shell', 'getprop', 'ro.serialno'], timeout=15).strip()
+            if not serial or (expected and serial != expected):
+                raise DeploymentError('La identidad Android no coincide con el teléfono configurado.')
+            self.remember_android(address, serial)
+            return address
+
+        if self.args.android:
+            if not valid_address(self.args.android):
+                raise DeploymentError('Usá una dirección IP:puerto válida.')
+            return verify(self.args.android)
+        try:
             services = self.run(['adb', 'mdns', 'services'])
             for line in services.splitlines():
-                if '_adb-tls-connect._tcp' in line:
-                    address = line.split()[-1]
+                address = line.split()[-1] if line.split() else ''
+                if '_adb-tls-connect._tcp' in line and valid_address(address):
                     try:
-                        self.run(['adb', 'connect', address], timeout=15)
+                        self.run(['adb', 'connect', address], timeout=10)
                     except DeploymentError:
                         pass
+        except DeploymentError:
+            self.say('Descubrimiento automático no disponible; se probará la dirección guardada.')
         devices = [line.split()[0] for line in self.run(['adb', 'devices']).splitlines()[1:]
                    if len(line.split()) > 1 and line.split()[1] == 'device']
-        # mDNS and explicit IP connections can represent the same phone.
         unique = {}
         for device in devices:
-            serial = self.run(['adb', '-s', device, 'shell', 'getprop', 'ro.serialno'], timeout=20).strip()
-            unique.setdefault(serial or device, device)
-        if len(unique) != 1:
-            raise DeploymentError('Se necesita un Android autorizado único (o --android IP:puerto).')
-        return next(iter(unique.values()))
+            try:
+                serial = self.run(['adb', '-s', device, 'shell', 'getprop', 'ro.serialno'], timeout=10).strip()
+                if serial and (not expected or serial == expected):
+                    unique.setdefault(serial, device)
+            except DeploymentError:
+                pass  # A stale mDNS transport cannot hide a working connection.
+        if len(unique) == 1:
+            serial, device = next(iter(unique.items()))
+            self.remember_android(device, serial)
+            return device
+        if saved.get('address') and valid_address(saved['address']):
+            try:
+                return verify(saved['address'])
+            except DeploymentError:
+                self.say('La dirección guardada ya no responde o no coincide con el teléfono.')
+        if self.args.non_interactive or not sys.stdin.isatty():
+            raise DeploymentError('No se detectó el Android configurado. Usá --android IP:puerto o ejecutá en Terminal para ingresar y guardar la dirección.')
+        with PROMPT_LOCK:
+            address = input('\n[android] En Depuración inalámbrica mirá Dirección IP y puerto.\nIngresá IP:puerto, Enter para esperar o s para saltear: ').strip()
+        if address.lower() == 's':
+            raise Skipped('Android saltado por el usuario.')
+        if not address:
+            raise RetryLater('Esperando descubrimiento Android.')
+        if not valid_address(address):
+            raise DeploymentError('Dirección inválida. Ejemplo: 192.168.1.134:40321')
+        return verify(address)
 
     def android(self):
         artifact = self.ci_artifact('android-release.yml', 'LanLink-Android-prueba-firmada', 'app-release.apk')
@@ -431,6 +505,8 @@ def main():
     parser.add_argument('--flutter')
     parser.add_argument('--identity')
     parser.add_argument('--team')
+    parser.add_argument('--config', default=str(Path.home() / '.config/lanlink/deploy.json'), help='Configuración privada guardada fuera del repositorio')
+    parser.add_argument('--android-serial', help='Identidad esperada; permite seleccionar otro teléfono explícitamente')
     parser.add_argument('--android', help='IP:puerto de depuración ya vinculada')
     parser.add_argument('--ios', help='UDID del iPhone')
     parser.add_argument('--vm', help='Nombre de la VM Parallels')
