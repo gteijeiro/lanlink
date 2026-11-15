@@ -213,6 +213,9 @@ class QuickReceiver {
       throw StateError('La sesión venció.');
     }
     // Serialize every mutation, including concurrent/replayed chunks.
+    if (session.pending >= 4) {
+      throw StateError('Esperá a que termine el bloque anterior.');
+    }
     session.pending++;
     final result = session.work
         .then((_) => _handleSession(session, path, body))
@@ -251,34 +254,38 @@ class QuickReceiver {
         throw StateError('Ya hay una solicitud en curso.');
       }
       session.offered = true;
-      final publicKey = quickDecode(body['publicKey'] as String);
-      final nonce = quickDecode(body['nonce'] as String);
-      if (publicKey.length != 32 ||
-          nonce.length != 32 ||
-          quickCommit(session.id, publicKey, nonce) != session.commitment) {
-        throw const FormatException('La sesión cambió durante la conexión.');
-      }
-      final key = await quickKey(session.pair, publicKey, session.nonce, nonce);
-      final data = await CryptoEnvelope.decryptJson(
-        (body['box'] as Map).cast<String, dynamic>(),
-        key,
-        aad: 'quick-offer-v1:${session.id}',
-      );
-      final senderName = data['name'];
-      if (senderName is! String ||
-          senderName.isEmpty ||
-          senderName.length > 100 ||
-          senderName.contains(RegExp(r'[\x00-\x1f\x7f]'))) {
-        throw const FormatException('Nombre de equipo inválido.');
-      }
-      final files = QuickFile.parse(data['files']);
-      session.key = key;
-      session.senderName = senderName;
-      session.files = files;
       _prompting = true;
-      bool accepted;
       try {
-        accepted =
+        final publicKey = quickDecode(body['publicKey'] as String);
+        final nonce = quickDecode(body['nonce'] as String);
+        if (publicKey.length != 32 ||
+            nonce.length != 32 ||
+            quickCommit(session.id, publicKey, nonce) != session.commitment) {
+          throw const FormatException('La sesión cambió durante la conexión.');
+        }
+        final key = await quickKey(
+          session.pair,
+          publicKey,
+          session.nonce,
+          nonce,
+        );
+        final data = await CryptoEnvelope.decryptJson(
+          (body['box'] as Map).cast<String, dynamic>(),
+          key,
+          aad: 'quick-offer-v1:${session.id}',
+        );
+        final senderName = data['name'];
+        if (senderName is! String ||
+            senderName.isEmpty ||
+            senderName.length > 100 ||
+            senderName.contains(RegExp(r'[\x00-\x1f\x7f]'))) {
+          throw const FormatException('Nombre de equipo inválido.');
+        }
+        final files = QuickFile.parse(data['files']);
+        session.key = key;
+        session.senderName = senderName;
+        session.files = files;
+        final accepted =
             await (onOffer?.call(
                       QuickOffer(
                         senderName,
@@ -288,21 +295,21 @@ class QuickReceiver {
                     ) ??
                     Future.value(false))
                 .timeout(const Duration(minutes: 2), onTimeout: () => false);
+        session.approved = accepted && enabled();
+        if (session.approved) {
+          session.lease = true;
+          onSessionState?.call(session.id, true);
+        }
+        if (!session.approved) session.closed = true;
+        session.expires = DateTime.now().add(const Duration(minutes: 3));
+        return await CryptoEnvelope.encryptJson(
+          {'accepted': session.approved},
+          key,
+          aad: 'quick-decision-v1:${session.id}',
+        );
       } finally {
         _prompting = false;
       }
-      session.approved = accepted && enabled();
-      if (session.approved) {
-        session.lease = true;
-        onSessionState?.call(session.id, true);
-      }
-      if (!session.approved) session.closed = true;
-      session.expires = DateTime.now().add(const Duration(minutes: 3));
-      return CryptoEnvelope.encryptJson(
-        {'accepted': session.approved},
-        key,
-        aad: 'quick-decision-v1:${session.id}',
-      );
     }
     if (!session.approved || session.key == null) {
       throw StateError('El envío no fue aceptado.');

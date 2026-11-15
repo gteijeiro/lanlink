@@ -35,6 +35,15 @@ $icon.Dispose()
 </Application></Applications><Capabilities><rescap:Capability Name="runFullTrust" /><rescap:Capability Name="unvirtualizedResources" /><DeviceCapability Name="bluetooth" /></Capabilities>
 </Package>
 "@ | Set-Content -Encoding utf8 (Join-Path $Release 'AppxManifest.xml')
-# No signing key is generated or published by CI. The user signs locally once.
+# Validate the manifest against the Windows SDK. This archive is only a CI check;
+# registration uses the installed loose developer package, without a signing key.
+$kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
+$makeappx = Get-ChildItem "$kits/*/x64/makeappx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+if (-not $makeappx) { throw 'No se encontró MakeAppx del Windows SDK.' }
+$validation = Join-Path ([System.IO.Path]::GetTempPath()) ('LanLink-manifest-' + [guid]::NewGuid() + '.msix')
+try {
+    & $makeappx.FullName pack /d $Release /p $validation /o
+    if ($LASTEXITCODE -ne 0) { throw 'El manifiesto de Windows Share no pasó la validación del SDK.' }
+} finally { Remove-Item $validation -Force -ErrorAction SilentlyContinue }
 Copy-Item scripts/install_windows_share.ps1 (Join-Path $Release 'Install-WindowsShare.ps1')
 Write-Output 'Windows Share preparado. El instalador local lo registra cuando el usuario ejecuta Install-WindowsShare.ps1.'

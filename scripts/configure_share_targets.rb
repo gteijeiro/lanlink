@@ -18,6 +18,12 @@ root = File.expand_path('..', __dir__)
   runner.add_dependency(share) unless runner.dependencies.any? { |dependency| dependency.target == share }
   embed = runner.copy_files_build_phases.find { |phase| phase.name == 'Embed Share Extension' } || runner.new_copy_files_build_phase('Embed Share Extension')
   embed.dst_subfolder_spec = '13'
+  if folder == 'ios'
+    # Embed before Flutter's Thin Binary phase, which reads the completed Info.plist.
+    runner.build_phases.delete(embed)
+    thin = runner.build_phases.index { |phase| phase.display_name == 'Thin Binary' } || runner.build_phases.length
+    runner.build_phases.insert(thin, embed)
+  end
   unless embed.files_references.include?(share.product_reference)
     file = embed.add_file_reference(share.product_reference)
     file.settings = {'ATTRIBUTES' => ['RemoveHeadersOnCopy']}

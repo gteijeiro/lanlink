@@ -31,7 +31,12 @@ internal static class Program
             if (!operation.Data.Contains(StandardDataFormats.StorageItems)) throw new InvalidOperationException("Compartí uno o varios archivos.");
             var items = await operation.Data.GetStorageItemsAsync();
             if (items.Count is 0 or > 100) throw new InvalidOperationException("Podés compartir hasta 100 archivos.");
-            folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("LanLinkShare-" + Guid.NewGuid());
+            // Clean only our expired copies, never the original shared files.
+            var temporary = ApplicationData.Current.TemporaryFolder;
+            foreach (var stale in await temporary.GetFoldersAsync())
+                if (stale.Name.StartsWith("LanLinkShare-", StringComparison.Ordinal) && stale.DateCreated < DateTimeOffset.UtcNow.AddHours(-48))
+                    try { await stale.DeleteAsync(); } catch { }
+            folder = await temporary.CreateFolderAsync("LanLinkShare-" + Guid.NewGuid());
             var paths = new List<string>();
             ulong total = 0;
             foreach (var item in items)
