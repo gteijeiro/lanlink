@@ -136,6 +136,7 @@ class _HomePageState extends State<HomePage> {
         id: _service.deviceId,
         name: _service.deviceName,
         handle: _service.quick.handle,
+        canReceive: () => _service.visibleOnLan || _service.directReceiving,
       );
 
       final quickDiscovery = DiscoveryService(

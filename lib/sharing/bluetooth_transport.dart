@@ -14,9 +14,11 @@ class BluetoothTransport {
     required this.id,
     required this.name,
     required this.handle,
+    required this.canReceive,
   });
   final String id, name;
   final QuickRpc handle;
+  final bool Function() canReceive;
   final destinations = <String, QuickDestination>{};
   void Function()? onChanged;
   void Function(String message)? onError;
@@ -36,6 +38,7 @@ class BluetoothTransport {
     'id': id,
     'name': name,
     'os': Platform.operatingSystem,
+    'receiving': canReceive(),
   };
   Future<Map<String, dynamic>> _incoming(
     RadioRpc link,

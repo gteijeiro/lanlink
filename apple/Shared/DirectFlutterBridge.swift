@@ -25,7 +25,7 @@ final class DirectFlutterBridge {
       guard let self else { result(FlutterError(code: "closed", message: "La conexión se cerró.", details: nil)); return }
       let args = call.arguments as? [String: Any] ?? [:]
       if call.method == "start" {
-        do { try self.engine.start(id: args["id"] as? String ?? UUID().uuidString, name: args["name"] as? String ?? "LanLink"); result(nil) }
+        do { try self.engine.start(id: args["id"] as? String ?? UUID().uuidString, name: args["name"] as? String ?? "LanLink", advertise: args["advertise"] as? Bool ?? false); result(nil) }
         catch { result(FlutterError(code: "direct", message: error.localizedDescription, details: nil)) }
       } else if call.method == "pauseDiscovery" { self.engine.pauseDiscovery(); result(nil) }
       else if call.method == "stop" { self.engine.stop(); result(nil) }

@@ -15,9 +15,11 @@ class DirectCoordinator extends ChangeNotifier {
     required this.id,
     required this.name,
     required this.handle,
+    required this.canReceive,
   });
   final String id, name;
   final QuickRpc handle;
+  final bool Function() canReceive;
   static const channel = MethodChannel('lanlink/direct');
   final _owners = <String>{};
   final _apple = <String, QuickDestination>{};
@@ -42,7 +44,11 @@ class DirectCoordinator extends ChangeNotifier {
         } catch (_) {}
         if (Platform.isIOS || Platform.isMacOS) {
           try {
-            await channel.invokeMethod<void>('start', {'id': id, 'name': name});
+            await channel.invokeMethod<void>('start', {
+              'id': id,
+              'name': name,
+              'advertise': canReceive(),
+            });
           } catch (_) {}
         }
       }
@@ -89,13 +95,22 @@ class DirectCoordinator extends ChangeNotifier {
         }
       });
       try {
-        await channel.invokeMethod<void>('start', {'id': id, 'name': name});
+        await channel.invokeMethod<void>('start', {
+          'id': id,
+          'name': name,
+          'advertise': canReceive(),
+        });
       } catch (_) {
         message =
             'La conexión Wi-Fi directa no está disponible en este equipo.';
       }
     }
-    final bluetooth = BluetoothTransport(id: id, name: name, handle: handle);
+    final bluetooth = BluetoothTransport(
+      id: id,
+      name: name,
+      handle: handle,
+      canReceive: canReceive,
+    );
     _bluetooth = bluetooth;
     bluetooth.onChanged = notifyListeners;
     bluetooth.onError = (error) {

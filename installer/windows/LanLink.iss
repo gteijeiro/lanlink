@@ -12,13 +12,13 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 OutputDir=..\..\build\windows-installer
 OutputBaseFilename=LanLink-Windows-x64-Setup
-Compression=lzma2
+Compression=lzma2/fast
 SolidCompression=yes
 UninstallDisplayIcon={app}\lanlink.exe
 WizardStyle=modern
 
 [Files]
-Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\LanLink"; Filename: "{app}\lanlink.exe"

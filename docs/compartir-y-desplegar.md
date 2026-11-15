@@ -10,7 +10,7 @@ LanLink elige la red local, Wi-Fi directa entre equipos Apple o su propio transp
 | --- | --- |
 | Red local | Cualquier combinación de plataformas en una LAN que permita conexiones entre equipos; no necesita Internet. |
 | Wi-Fi directa Apple | iPhone/Mac con Wi-Fi encendida, permiso de red local y LanLink compatible. Usa Network.framework con `includePeerToPeer`, sin una Wi-Fi compartida. |
-| Bluetooth LE LanLink | Sin Wi-Fi compartida. Requiere Bluetooth, permisos y un adaptador con las funciones necesarias. El receptor necesita modo periférico/GATT; el emisor necesita modo central. Windows/Linux dependen del adaptador y sus controladores. |
+| Bluetooth LE LanLink | Sin Wi-Fi compartida. Requiere Bluetooth, permisos y un adaptador con las funciones necesarias. Uno de los equipos necesita modo periférico/GATT y el otro modo central; una vez conectados, el enlace permite enviar en ambos sentidos. Windows/Linux dependen del adaptador y sus controladores. |
 | AirDrop / Quick Share / Compartir del sistema | Se elige en el menú del sistema. No constituye un protocolo universal ni garantiza comunicación entre todos los sistemas. |
 
 Bluetooth es más lento, especialmente con videos. Si no hay ningún transporte compatible disponible se muestra el problema; no se simula un envío exitoso. No se implementa Wi-Fi Direct universal Android/Windows/Linux, transferencia por Internet ni recepción permanente en segundo plano. La selección automática prioriza los transportes disponibles al elegir el destino; si falla un envío se puede reintentar, no se promete cambiar de radio a mitad del archivo.

@@ -326,8 +326,22 @@ class QuickReceiver {
     if (path != '/quick/chunk') {
       throw const FormatException('Ruta de envío desconocida.');
     }
+    // JSON dictionary order differs between Swift, Dart and other senders.
+    // Cache the authenticated fields in a fixed order, never wire serialization.
+    final envelope = (body['box'] as Map).cast<String, dynamic>();
     final requestHash = hashing.sha256
-        .convert(utf8.encode(jsonEncode(body)))
+        .convert(
+          utf8.encode(
+            jsonEncode([
+              session.id,
+              body['index'],
+              body['offset'],
+              envelope['n'],
+              envelope['c'],
+              envelope['m'],
+            ]),
+          ),
+        )
         .toString();
     if (session.lastRequest == requestHash) return session.lastReply!;
     if (session.closed ||

@@ -99,7 +99,17 @@ void main() {
       final sender = QuickSender(name: 'Emisor')
         ..confirmCode = (_) async => true;
       await sender.send([XFile(file.path)], (path, body) async {
-        final result = await receiver.handle(path, body);
+        final reordered = <String, dynamic>{
+          for (final key in body.keys.toList().reversed) key: body[key],
+        };
+        if (reordered['box'] is Map) {
+          final box = (reordered['box'] as Map).cast<String, dynamic>();
+          reordered['box'] = {
+            for (final key in box.keys.toList().reversed) key: box[key],
+          };
+        }
+        // Simulate a sender whose JSON serializer changes dictionary order.
+        final result = await receiver.handle(path, dropped ? reordered : body);
         if (path == '/quick/chunk' && !dropped) {
           dropped = true;
           throw const SocketException('acuse perdido');
