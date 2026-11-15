@@ -78,8 +78,10 @@ class DirectCoordinator extends ChangeNotifier {
           for (final raw in (call.arguments as List)) {
             final peer = (raw as Map).cast<String, dynamic>();
             final target = peer['id'] as String;
-            if (_apple[target]?.transport == 'Red local') continue;
-            _apple[target] = QuickDestination(
+            // Keep each route: a stale LAN advertisement must not hide
+            // a responding Apple peer-to-peer endpoint for the same device.
+            final routeToken = peer['token'] as String? ?? target;
+            _apple[routeToken] = QuickDestination(
               id: target,
               name: peer['name'],
               transport: peer['transport'] as String? ?? 'Wi-Fi directa',

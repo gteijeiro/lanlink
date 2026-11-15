@@ -68,9 +68,11 @@ final class QuickNativeSender {
       return NativeSharedFile(url: url, name: url.lastPathComponent, size: size, hash: hash.finalize().map { String(format: "%02x", $0) }.joined())
     }
   }
-  func send(_ files: [NativeSharedFile], name: String, rpc: @escaping RPC, chunkSize: Int) async throws {
+  func send(_ files: [NativeSharedFile], name: String, rpc: @escaping RPC, chunkSize: Int, selectedChunkSize: (() -> Int)? = nil) async throws {
     try check()
     let hello = try await rpc("/quick/hello", [:])
+    let chunkSize = selectedChunkSize?() ?? chunkSize
+    guard chunkSize > 0, chunkSize <= 128 * 1024 else { throw DirectError.invalid }
     guard hello["v"] as? Int == 1, let session = hello["session"] as? String, session.count == 22 else { throw DirectError.invalid }
     let own = Curve25519.KeyAgreement.PrivateKey()
     let publicKey = own.publicKey.rawRepresentation

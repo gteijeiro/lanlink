@@ -6,6 +6,36 @@ import UIKit
 import Cocoa
 #endif
 
+// Select a responding compatible route before committing to a single session.
+@MainActor private final class NativeQuickRouteSelector {
+  let routes: [NativeNearbyDestination]
+  var selected: NativeNearbyDestination?
+  var onSelected: ((NativeNearbyDestination) -> Void)?
+  var cancelled: (() -> Bool)?
+  init(_ routes: [NativeNearbyDestination]) { self.routes = routes }
+  func request(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
+    if cancelled?() == true { throw CancellationError() }
+    if let selected { return try await selected.rpc(path, body) }
+    guard path == "/quick/hello" else { throw DirectError.invalid }
+    for route in routes {
+      if cancelled?() == true { throw CancellationError() }
+      // Native transports already enforce connection/request deadlines.
+      let hello: [String: Any]
+      do {
+        hello = try await route.rpc(path, body)
+        guard hello["v"] as? Int == 1,
+              let session = hello["session"] as? String,
+              session.range(of: "^[A-Za-z0-9_-]{22}$", options: .regularExpression) != nil,
+              let commit = hello["commit"] as? String,
+              commit.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else { continue }
+      } catch { continue }
+      if cancelled?() == true { throw CancellationError() }
+      selected = route; onSelected?(route); return hello
+    }
+    throw DirectError.unavailable
+  }
+}
+
 @MainActor final class ShareModel: ObservableObject {
   @Published var files: [NativeSharedFile] = []
   @Published var peers: [NativeNearbyDestination] = []
@@ -17,6 +47,7 @@ import Cocoa
   @Published var finished = false
   private let wifi = DirectPeerEngine()
   private let bluetooth = NativeBluetoothClient()
+  private var routesByID: [String: [NativeNearbyDestination]] = [:]
   private var wifiPeers: [NativeNearbyDestination] = [], bluetoothPeers: [NativeNearbyDestination] = []
   private var sender: QuickNativeSender?
   private var confirmation: CheckedContinuation<Bool, Never>?
@@ -77,16 +108,19 @@ import Cocoa
     }
   }
   private func merge() {
-    var selected: [String: NativeNearbyDestination] = [:]
+    routesByID.removeAll()
     for peer in wifiPeers.sorted(by: { $0.transport == "Red local" && $1.transport != "Red local" }) + bluetoothPeers {
-      if selected[peer.id] == nil { selected[peer.id] = peer }
+      routesByID[peer.id, default: []].append(peer)
     }
-    peers = selected.values.sorted { $0.name < $1.name }
+    peers = routesByID.values.compactMap { $0.first }.sorted { $0.name < $1.name }
   }
   func send(_ peer: NativeNearbyDestination) {
     guard !sending else { return }
     sending = true; error = nil; status = "Conectando con \(peer.name) · \(peer.transport)…"
     let sender = QuickNativeSender(); self.sender = sender
+    let selector = NativeQuickRouteSelector(routesByID[peer.id] ?? [peer])
+    selector.cancelled = { [weak self] in self?.closed != false || sender.cancelled }
+    selector.onSelected = { [weak self] route in self?.status = "Conectado con \(route.name) · \(route.transport)" }
     sender.onCode = { [weak self] code in self?.code = code; self?.status = "Compará el código con el receptor y esperá su aceptación." }
     sender.confirmCode = { [weak self] _ in
       guard let self else { return false }
@@ -110,7 +144,7 @@ import Cocoa
         #else
         let name = Host.current().localizedName ?? "Mac"
         #endif
-        try await sender.send(files, name: String(name.prefix(100)), rpc: peer.rpc, chunkSize: peer.chunkSize)
+        try await sender.send(files, name: String(name.prefix(100)), rpc: { path, body in try await selector.request(path, body) }, chunkSize: peer.chunkSize, selectedChunkSize: { selector.selected?.chunkSize ?? peer.chunkSize })
         finished = true; status = "El receptor verificó los archivos completos."
       } catch { self.error = error.localizedDescription; sending = false; code = nil }
     }
@@ -143,7 +177,7 @@ private struct SharePanel: View {
           if model.peers.isEmpty { Text("Buscando equipos… En el receptor, abrí LanLink y activá «Recibir cerca».").foregroundColor(.secondary) }
           ForEach(Array(model.peers.enumerated()), id: \.offset) { _, peer in
             Button(action: { model.send(peer) }) {
-              HStack { Image(systemName: peer.transport == "Bluetooth" ? "antenna.radiowaves.left.and.right" : "laptopcomputer"); VStack(alignment: .leading) { Text(peer.name); Text(peer.transport).font(.caption) }; Spacer(); Image(systemName: "chevron.right") }
+              HStack { Image(systemName: peer.transport == "Bluetooth" ? "antenna.radiowaves.left.and.right" : "laptopcomputer"); VStack(alignment: .leading) { Text(peer.name); Text("Selección automática").font(.caption) }; Spacer(); Image(systemName: "chevron.right") }
             }.buttonStyle(.bordered)
           }
           Text("Sin Wi-Fi compartida: dejá Wi-Fi y Bluetooth encendidos. Bluetooth puede ser lento para videos grandes.").font(.caption).foregroundColor(.secondary)

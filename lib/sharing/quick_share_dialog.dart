@@ -8,6 +8,7 @@ import '../ui/file_type_icon.dart';
 import 'direct_coordinator.dart';
 import 'quick_transfer.dart';
 import 'radio_rpc.dart';
+import 'route_selector.dart';
 
 class QuickShareDialog extends StatefulWidget {
   const QuickShareDialog({
@@ -31,7 +32,7 @@ class _QuickShareDialogState extends State<QuickShareDialog> {
   Completer<bool>? _verification;
   QuickProgress? _progress;
   String? _code, _error;
-  bool _sending = false, _canConfirm = false, _done = false;
+  bool _sending = false, _canConfirm = false, _done = false, _choosing = false;
   Timer? _refresh;
   late final String _owner = 'share-${quickRandom()}';
   @override
@@ -58,16 +59,30 @@ class _QuickShareDialogState extends State<QuickShareDialog> {
     super.dispose();
   }
 
-  Future<void> _send(QuickDestination destination) async {
+  Future<void> _send(List<QuickDestination> routes) async {
+    final destination = routes.first;
     setState(() {
       _target = destination;
       _sending = true;
+      _choosing = true;
       _error = null;
       _code = null;
       _progress = null;
     });
     final sender = QuickSender(name: widget.deviceName);
     _sender = sender;
+    final selector = QuickRouteSelector(
+      routes,
+      cancelled: () => sender.cancelled,
+      onSelected: (route) {
+        if (mounted) {
+          setState(() {
+            _target = route;
+            _choosing = false;
+          });
+        }
+      },
+    );
     sender.onCode = (code) {
       if (mounted) setState(() => _code = code);
     };
@@ -87,8 +102,8 @@ class _QuickShareDialogState extends State<QuickShareDialog> {
     try {
       await sender.send(
         widget.files,
-        destination.rpc,
-        chunkSize: destination.chunkSize,
+        selector.request,
+        selectedChunkSize: () => selector.chunkSize,
       );
       if (mounted) setState(() => _done = true);
     } catch (error) {
@@ -123,14 +138,10 @@ class _QuickShareDialogState extends State<QuickShareDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final destinations = <String, QuickDestination>{};
-    // Prefer LAN, then Apple direct Wi-Fi, then Bluetooth for the same id.
-    for (final destination in [
+    final destinations = groupQuickRoutes([
       ...widget.lan(),
       ...widget.direct.destinations,
-    ]) {
-      destinations.putIfAbsent(destination.id, () => destination);
-    }
+    ]);
     final colors = Theme.of(context).colorScheme;
     return AlertDialog(
       title: Text(_done ? 'Envío completo' : 'Compartir con LanLink'),
@@ -175,7 +186,9 @@ class _QuickShareDialogState extends State<QuickShareDialog> {
                 const SizedBox(height: 12),
                 Text('El receptor verificó los archivos completos.'),
               ] else if (_sending) ...[
-                Text('Destino: ${_target!.name} · ${_target!.transport}'),
+                Text(
+                  'Destino: ${_target!.name} · ${_choosing ? 'Buscando conexión compatible…' : _target!.transport}',
+                ),
                 if (_target!.transport == 'Bluetooth')
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
@@ -246,19 +259,21 @@ class _QuickShareDialogState extends State<QuickShareDialog> {
                       'Buscando equipos… Abrí LanLink en el receptor y activá «Recibir cerca» o su visibilidad en la red.',
                     ),
                   ),
-                for (final destination in destinations.values)
+                for (final routes in destinations.values)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(
-                      destination.transport == 'Bluetooth'
+                      routes.first.transport == 'Bluetooth'
                           ? Icons.bluetooth_rounded
                           : Icons.devices_rounded,
                       color: colors.primary,
                     ),
-                    title: Text(destination.name),
-                    subtitle: Text(destination.transport),
+                    title: Text(routes.first.name),
+                    subtitle: Text(
+                      'Automático · ${routes.map((route) => route.transport).toSet().join(" / ")}',
+                    ),
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _send(destination),
+                    onTap: () => _send(routes),
                   ),
                 if (widget.direct.message != null)
                   Text(
@@ -270,15 +285,15 @@ class _QuickShareDialogState extends State<QuickShareDialog> {
                   OutlinedButton.icon(
                     onPressed: _systemShare,
                     icon: const Icon(Icons.ios_share),
-                    label: const Text('Otras opciones del sistema'),
+                    label: const Text('Compartir fuera de LanLink'),
                   ),
                   const Text(
-                    'Abre Compartir para elegir AirDrop, Quick Share u otra opción disponible en tu equipo.',
+                    'Abre el menú del sistema. AirDrop y Quick Share dependen de la compatibilidad entre esos equipos; LanLink no los necesita para sus envíos.',
                   ),
                   const SizedBox(height: 12),
                 ],
                 const Text(
-                  'Entre equipos Apple, Wi-Fi directa necesita Wi-Fi encendida, aunque no esté conectada a una red. Bluetooth necesita estar activado y autorizado.',
+                  'LanLink elige una conexión compatible automáticamente. Android y iPhone usan red local o Bluetooth de LanLink. Entre equipos Apple, Wi-Fi directa necesita Wi-Fi encendida, aunque no esté conectada a una red. Bluetooth necesita estar activado y autorizado.',
                 ),
               ],
             ],

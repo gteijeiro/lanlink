@@ -1,10 +1,10 @@
-# Compartir con LanLink y desplegar 1.4
+# Compartir con LanLink y desplegar 1.4.1
 
 ## Qué incorpora
 
 Desde Galería/Fotos/Archivos, seleccioná uno o varios archivos, tocá **Compartir → LanLink**, elegí el equipo y compará el código de seis cifras en las dos pantallas. El receptor debe abrir LanLink y activar **Recibir cerca** (diez minutos), o tener **Visible en la red** para recibir por LAN. El receptor acepta la oferta y el emisor confirma que el código coincide. No se crea un vínculo guardado ni se modifica la confianza de los dispositivos existentes. Ambas apps deben mantenerse abiertas; en Apple también puede enviarse desde la propia extensión Compartir.
 
-LanLink elige la red local, Wi-Fi directa entre equipos Apple o su propio transporte Bluetooth LE según lo que descubre. En **Otras opciones del sistema** podés abrir el menú nativo y elegir AirDrop, Quick Share o las alternativas que ofrezca el sistema. Esas opciones las gestiona el sistema operativo y pueden requerir su propia configuración.
+LanLink elige la red local, Wi-Fi directa entre equipos Apple o su propio transporte Bluetooth LE según lo que descubre. En **Compartir fuera de LanLink** podés abrir el menú nativo y elegir AirDrop, Quick Share o las alternativas que ofrezca el sistema. Esas opciones las gestiona el sistema operativo y pueden requerir su propia configuración.
 
 | Transporte | Requisitos y alcance |
 | --- | --- |
@@ -13,7 +13,7 @@ LanLink elige la red local, Wi-Fi directa entre equipos Apple o su propio transp
 | Bluetooth LE LanLink | Sin Wi-Fi compartida. Requiere Bluetooth, permisos y un adaptador con las funciones necesarias. Uno de los equipos necesita modo periférico/GATT y el otro modo central; una vez conectados, el enlace permite enviar en ambos sentidos. Windows/Linux dependen del adaptador y sus controladores. |
 | AirDrop / Quick Share / Compartir del sistema | Se elige en el menú del sistema. No constituye un protocolo universal ni garantiza comunicación entre todos los sistemas. |
 
-Bluetooth es más lento, especialmente con videos. Si no hay ningún transporte compatible disponible se muestra el problema; no se simula un envío exitoso. No se implementa Wi-Fi Direct universal Android/Windows/Linux, transferencia por Internet ni recepción permanente en segundo plano. La selección automática prioriza los transportes disponibles al elegir el destino; si falla un envío se puede reintentar, no se promete cambiar de radio a mitad del archivo.
+Bluetooth es más lento, especialmente con videos. Si no hay ningún transporte compatible disponible se muestra el problema; no se simula un envío exitoso. No se implementa Wi-Fi Direct universal Android/Windows/Linux, transferencia por Internet ni recepción permanente en segundo plano. La selección automática conserva todas las rutas anunciadas por cada dispositivo y prueba una conexión compatible, priorizando LAN, Wi-Fi directa Apple y Bluetooth. Si una IP dejó de responder o la conexión inicial falla, prueba otra ruta antes de mostrar una oferta. El transporte queda fijado durante la sesión: un rechazo, una verificación fallida o una interrupción a mitad del archivo se muestra como error y no genera otra oferta ni cambia de radio automáticamente. Android ↔ iPhone no depende de AirDrop: usa LAN o el transporte Bluetooth LE de LanLink cuando esté disponible.
 
 **Estado de verificación:** las pruebas automáticas cubren el protocolo, la integridad de archivos, el código de confirmación, cancelación, límites, repetición de acuses y fragmentación Bluetooth. Existe un vector común CryptoKit/Dart. Compilar no verifica las radios reales ni la aparición del menú Compartir en un teléfono. La comprobación con dispositivos físicos queda para después del despliegue del usuario.
 

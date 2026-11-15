@@ -12,7 +12,7 @@ root = File.expand_path('..', __dir__)
     targets.each { |target| target.source_build_phase.add_file_reference(file) unless target.source_build_phase.files_references.include?(file) }
   end
   share.build_configurations.each do |config|
-    config.build_settings.merge!({'PRODUCT_BUNDLE_IDENTIFIER' => bundle, 'PRODUCT_NAME' => 'LanLinkShare', 'SWIFT_VERSION' => '5.0', 'MARKETING_VERSION' => '1.4.0', 'CURRENT_PROJECT_VERSION' => '9', 'INFOPLIST_FILE' => "../apple/ShareExtension/Info-#{folder}.plist", 'GENERATE_INFOPLIST_FILE' => 'NO', 'SKIP_INSTALL' => 'YES', 'APPLICATION_EXTENSION_API_ONLY' => 'YES', 'DEVELOPMENT_TEAM' => '6WV47G2CGZ', 'CODE_SIGN_STYLE' => 'Automatic'})
+    config.build_settings.merge!({'PRODUCT_BUNDLE_IDENTIFIER' => bundle, 'PRODUCT_NAME' => 'LanLinkShare', 'SWIFT_VERSION' => '5.0', 'MARKETING_VERSION' => '1.4.1', 'CURRENT_PROJECT_VERSION' => '10', 'INFOPLIST_FILE' => "../apple/ShareExtension/Info-#{folder}.plist", 'GENERATE_INFOPLIST_FILE' => 'NO', 'SKIP_INSTALL' => 'YES', 'APPLICATION_EXTENSION_API_ONLY' => 'YES', 'DEVELOPMENT_TEAM' => '6WV47G2CGZ', 'CODE_SIGN_STYLE' => 'Automatic'})
     config.build_settings['CODE_SIGN_ENTITLEMENTS'] = '../apple/ShareExtension/Share-macos.entitlements' if folder == 'macos'
   end
   runner.add_dependency(share) unless runner.dependencies.any? { |dependency| dependency.target == share }

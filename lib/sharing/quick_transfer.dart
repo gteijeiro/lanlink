@@ -461,6 +461,7 @@ class QuickSender {
     List<XFile> sources,
     QuickRpc rpc, {
     int chunkSize = quickMaxChunk,
+    int Function()? selectedChunkSize,
   }) async {
     if (sources.isEmpty ||
         sources.length > quickMaxFiles ||
@@ -490,6 +491,10 @@ class QuickSender {
     QuickFile.parse(files.map((file) => file.toJson()).toList());
     _check();
     final hello = await rpc('/quick/hello', {});
+    chunkSize = selectedChunkSize?.call() ?? chunkSize;
+    if (chunkSize < 1 || chunkSize > quickMaxChunk) {
+      throw const FormatException('Tamaño de bloque inválido.');
+    }
     if (hello['v'] != quickVersion ||
         hello['session'] is! String ||
         !RegExp(r'^[A-Za-z0-9_-]{22}$').hasMatch(hello['session'])) {
