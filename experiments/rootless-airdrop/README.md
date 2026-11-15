@@ -49,6 +49,37 @@ cercano con Wi-Fi/Bluetooth activos y AirDrop visible. Cero anuncios sin un
 emisor conocido no demuestra una falla del teléfono. Descubrir anuncios tampoco
 prueba el enlace Wi-Fi ni una transferencia.
 
+## Resultado físico: 15 de noviembre de 2026
+
+APK del commit `4076461`, compilado en la
+[ejecución 43731655682](https://github.com/gteijeiro/lanlink/actions/runs/43731655682).
+Compilación y siete comprobaciones de interpretación aprobadas. Instalado como
+aplicación separada en un Samsung SM-A536E, Android API 36, y ejecutado con UID
+de aplicación normal; se corroboró el UID del proceso. Solo se concedieron los
+permisos Bluetooth de ejecución declarados en el APK.
+
+- Wi-Fi Direct disponible; Wi-Fi Aware público y su servicio no disponibles.
+- `com.google.android.mosey` no instalado; Quick Share 13.8.53.20 presente.
+- La app solo observó `wlan0` activa, sin interfaz candidata AWDL/Mosey.
+- `AF_PACKET/SOCK_RAW` denegado con errno 13, `Permission denied`.
+- Sin permisos de sistema de gestión de interfaces/red ni del control AWDL
+  de Samsung que se consultaron.
+- Barrido de 15 segundos, con un iPhone cercano configurado en AirDrop
+  «Todos durante 10 minutos»: 150 anuncios Apple, cero registros AirDrop
+  reconocidos por el parser y cero servicios `_airdrop._tcp` descubiertos.
+  Los anuncios no se atribuyen a un teléfono concreto: no se guardan sus
+  identificadores. La ausencia de registros reconocidos no demuestra por sí
+  sola incompatibilidad, porque depende de lo que emitan los equipos y de los
+  filtros del sistema.
+
+**No se realizó una transferencia AirDrop.** La ruta de radio directo probada
+está bloqueada para esta app en esta instalación del sistema. La prueba no
+demuestra incapacidad física del chip ni descarta una futura integración del
+fabricante. Wi-Fi Direct o Bluetooth visibles tampoco acreditan compatibilidad
+con el enlace que necesita AirDrop. No se modificó el sistema ni se reemplazó
+la instalación estable de LanLink. Los informes completos permanecen locales,
+fuera de Git; no se publican APK del fabricante ni datos de dispositivos.
+
 ## Fuentes revisadas
 
 - [OpenDrop](https://github.com/seemoo-lab/opendrop): requiere enlace AWDL.
