@@ -30,13 +30,24 @@ public final class ProbeActivity extends Activity {
     private NsdManager.DiscoveryListener discovery;
     private boolean scanning;
     private int appleFrames, airDropFrames, serviceCount;
+    private int durationSeconds = 15, droppedObservations;
+    private String phase = "discovery";
+    private long scanStartedMs;
+    private JSONArray observations;
+    private JSONObject shapeCounts;
+    // Addresses only label peers within one capture; never written to disk or logs.
+    private final Map<String, Integer> peerLabels = new HashMap<>();
+    private static final int MAX_OBSERVATIONS = 1000;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        durationSeconds = Math.max(10, Math.min(120, getIntent().getIntExtra("seconds", 15)));
+        String requestedPhase = getIntent().getStringExtra("phase");
+        if ("baseline".equals(requestedPhase) || "airdrop_sender".equals(requestedPhase)) phase = requestedPhase;
         LinearLayout body = new LinearLayout(this); body.setOrientation(LinearLayout.VERTICAL); body.setPadding(28, 36, 28, 28);
         TextView title = new TextView(this); title.setText("LanLink · prueba AirDrop sin root"); title.setTextSize(22); body.addView(title);
         TextView note = new TextView(this); note.setText("Prototipo de descubrimiento y acceso al transporte. No anuncia un receptor falso ni declara una transferencia exitosa. No cambia la configuración Wi-Fi."); body.addView(note);
-        Button run = new Button(this); run.setText("Comprobar y buscar durante 15 segundos"); run.setOnClickListener(v -> startScan()); body.addView(run);
+        Button run = new Button(this); run.setText("Escuchar durante " + durationSeconds + " segundos"); run.setOnClickListener(v -> startScan()); body.addView(run);
         output = new TextView(this); output.setTextSize(12); output.setTextIsSelectable(true);
         ScrollView scroll = new ScrollView(this); scroll.addView(output); body.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(body);
@@ -56,6 +67,7 @@ public final class ProbeActivity extends Activity {
                 report.put("appUid", android.os.Process.myUid());
                 report.put("normalAppUid", android.os.Process.myUid() >= 10000);
                 PackageManager pm = getPackageManager();
+                report.put("probeVersion", pm.getPackageInfo(getPackageName(), 0).versionName);
                 JSONObject packages = new JSONObject();
                 for (String name : new String[]{"com.google.android.mosey", "com.samsung.android.app.sharelive"}) {
                     try {
@@ -107,9 +119,18 @@ public final class ProbeActivity extends Activity {
         for (String permission : permissions) if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(permissions, 51); return;
         }
-        scanning = true; appleFrames = airDropFrames = serviceCount = 0;
+        scanning = true; appleFrames = airDropFrames = serviceCount = droppedObservations = 0;
+        synchronized (lock) {
+            peerLabels.clear(); observations = new JSONArray(); shapeCounts = new JSONObject();
+            scanStartedMs = SystemClock.elapsedRealtime();
+            put("capturePhase", phase); put("durationSeconds", durationSeconds);
+            put("scanStartedAtEpochMs", System.currentTimeMillis());
+            put("bleObservationScope", "APPLE_TLV_HEADERS_ONLY_NO_PAYLOADS_OR_DEVICE_IDENTIFIERS");
+            put("bleObservations", observations); put("bleShapeCounts", shapeCounts);
+        }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         put("scanState", "SCANNING");
+        synchronized (lock) { persist(); }
         try {
             BluetoothManager manager = getSystemService(BluetoothManager.class);
             BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
@@ -129,14 +150,31 @@ public final class ProbeActivity extends Activity {
             };
             nsd.discoverServices("_airdrop._tcp.", NsdManager.PROTOCOL_DNS_SD, discovery);
         } catch (Exception error) { put("mdnsError", error.getClass().getSimpleName()+": "+error.getMessage()); }
-        render(); ui.postDelayed(this::finishScan, 15000);
+        render(); ui.postDelayed(this::finishScan, durationSeconds * 1000L);
     }
 
     private final ScanCallback bleCallback = new ScanCallback() {
         @Override public void onScanResult(int type, ScanResult result) {
             ScanRecord record = result.getScanRecord(); if (record == null) return;
             byte[] bytes = record.getManufacturerSpecificData(0x004c); if (bytes == null) return;
-            synchronized (lock) { appleFrames++; if (AirDropEvidence.containsAirDropRecord(bytes)) airDropFrames++; }
+            synchronized (lock) {
+                if (!scanning) return;
+                appleFrames++; boolean airDrop = AirDropEvidence.containsAirDropRecord(bytes);
+                if (airDrop) airDropFrames++;
+                String shape = AirDropEvidence.recordShape(bytes);
+                try {
+                    shapeCounts.put(shape, shapeCounts.optInt(shape) + 1);
+                    if (observations.length() >= MAX_OBSERVATIONS) { droppedObservations++; return; }
+                    String address = result.getDevice().getAddress();
+                    Integer peer = peerLabels.get(address);
+                    if (peer == null) { peer = peerLabels.size() + 1; peerLabels.put(address, peer); }
+                    JSONObject event = new JSONObject();
+                    event.put("elapsedMs", SystemClock.elapsedRealtime() - scanStartedMs);
+                    event.put("peerInThisCapture", peer); event.put("rssi", result.getRssi());
+                    event.put("manufacturerByteLength", bytes.length); event.put("tlvShape", shape);
+                    event.put("recognizedAirDropRecord", airDrop); observations.put(event);
+                } catch (JSONException | SecurityException error) { put("observationError", error.getClass().getSimpleName()); }
+            }
         }
         @Override public void onScanFailed(int code) { put("bleScanError", code); }
     };
@@ -148,7 +186,10 @@ public final class ProbeActivity extends Activity {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         synchronized (lock) {
             put("appleAdvertisementCount", appleFrames); put("airDropAdvertisementCount", airDropFrames);
+            put("observedPeerCount", peerLabels.size()); put("droppedObservationCount", droppedObservations);
+            put("scanFinishedAtEpochMs", System.currentTimeMillis());
             put("airDropMdnsServiceCount", serviceCount); put("scanState", "FINISHED"); persist();
+            peerLabels.clear();
         }
         render();
     }
@@ -161,6 +202,13 @@ public final class ProbeActivity extends Activity {
         try (FileOutputStream file = openFileOutput("report.json", MODE_PRIVATE)) { file.write(report.toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
         catch (Exception ignored) {}
     }
-    private void render() { synchronized (lock) { try { output.setText(report.toString(2)); } catch (JSONException ignored) {} } }
+    private void render() {
+        synchronized (lock) {
+            try {
+                JSONObject summary = new JSONObject(report.toString()); summary.remove("bleObservations");
+                output.setText(summary.toString(2));
+            } catch (JSONException ignored) {}
+        }
+    }
     @Override protected void onDestroy() { ui.removeCallbacksAndMessages(null); finishScan(); super.onDestroy(); }
 }

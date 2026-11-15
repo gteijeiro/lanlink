@@ -49,6 +49,34 @@ cercano con Wi-Fi/Bluetooth activos y AirDrop visible. Cero anuncios sin un
 emisor conocido no demuestra una falla del teléfono. Descubrir anuncios tampoco
 prueba el enlace Wi-Fi ni una transferencia.
 
+## Comparación con el iPhone enviando anuncios
+
+El ensayo 0.2 agrega duración configurable de 10 a 120 segundos y un registro
+limitado a 1.000 observaciones: tiempo relativo, intensidad, etiqueta temporal
+del emisor y tipos/longitudes de registros Apple. Nunca guarda los valores de
+esos registros (pueden contener hashes de contactos), nombres ni direcciones.
+Las etiquetas del emisor solo valen dentro de una captura. No atribuyen por sí
+solas un anuncio al iPhone de prueba.
+
+Con el APK 0.2 instalado, sustituir `SERIAL` por el identificador de `adb devices`:
+
+```sh
+python3 experiments/rootless-airdrop/capture.py --serial SERIAL --phase baseline --seconds 20
+# Abrir en el iPhone un archivo de prueba → Compartir → AirDrop.
+# Mantener la lista de destinatarios abierta durante la siguiente captura.
+python3 experiments/rootless-airdrop/capture.py --serial SERIAL --phase airdrop_sender --seconds 45
+```
+
+Los informes quedan en `build/airdrop-rootless/sessions/`, fuera de Git.
+El script verifica que sea la versión correcta, espera un informe nuevo de esa
+captura, conserva un informe parcial si vence el plazo y señala fallos de
+Bluetooth o DNS-SD. No solicita ni instala permisos privilegiados.
+
+Esto permite observar la etapa Bluetooth del intento de descubrimiento. No
+captura tramas AWDL, no descifra TLS y no anuncia un receptor AirDrop: el Android
+no aparecerá en la lista del iPhone solo por estar escuchando. Encontrar un
+registro `05:18` tampoco prueba identificación, autorización ni transferencia.
+
 ## Resultado físico: 15 de noviembre de 2026
 
 APK del commit `4076461`, compilado en la

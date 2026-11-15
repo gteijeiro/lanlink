@@ -6,8 +6,8 @@ android {
         applicationId = "com.example.lanlink.airdropprobe"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1-experimental"
+        versionCode = 2
+        versionName = "0.2-experimental"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

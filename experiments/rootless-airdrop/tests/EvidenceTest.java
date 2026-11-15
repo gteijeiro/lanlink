@@ -10,6 +10,13 @@ public final class EvidenceTest {
         if (!AirDropEvidence.assess(false,false).equals("NO_ROOTLESS_AWDL_LINK_EXPOSED")) throw new AssertionError("blocked");
         if (AirDropEvidence.assess(true,false).contains("SUCCESS")) throw new AssertionError("interface is not a transfer");
         if (AirDropEvidence.assess(false,true).contains("SUCCESS")) throw new AssertionError("raw socket is not a transfer");
-        System.out.println("7 rootless evidence tests passed");
+        if (!AirDropEvidence.recordShape(null).equals("empty")) throw new AssertionError("null shape");
+        if (!AirDropEvidence.recordShape(new byte[]{5}).equals("truncated-header")) throw new AssertionError("short header");
+        if (!AirDropEvidence.recordShape(new byte[]{5,18,0}).equals("05:18(truncated)")) throw new AssertionError("short payload");
+        if (!AirDropEvidence.recordShape(unknown).equals("10:1,05:18")) throw new AssertionError("record layout");
+        byte[] first = {5,2,11,12}, second = {5,2,99,100};
+        if (!AirDropEvidence.recordShape(first).equals(AirDropEvidence.recordShape(second))) throw new AssertionError("payload leaked into shape");
+        if (!AirDropEvidence.recordShape(new byte[]{-1,0}).equals("ff:0")) throw new AssertionError("unsigned type and zero length");
+        System.out.println("13 rootless evidence tests passed");
     }
 }
