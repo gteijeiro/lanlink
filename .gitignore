@@ -54,3 +54,9 @@ __pycache__/
 # Native Windows share broker output
 windows/share_target/bin/
 windows/share_target/obj/
+
+# Isolated AirDrop compatibility experiment
+experiments/rootless-airdrop/.gradle/
+experiments/rootless-airdrop/build/
+experiments/rootless-airdrop/app/build/
+experiments/rootless-airdrop/local.properties
