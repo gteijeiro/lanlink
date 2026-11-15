@@ -1,6 +1,8 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <sstream>
+#include <flutter/standard_method_codec.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -25,6 +27,21 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  incoming_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "lanlink/incoming", &flutter::StandardMethodCodec::GetInstance());
+  incoming_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
+    if (call.method_name() == "drain") {
+      incoming_ready_ = true;
+      result->Success(flutter::EncodableValue(flutter::EncodableList{}));
+      if (!pending_arguments_.empty()) {
+        flutter::EncodableList values;
+        for (const auto& value : pending_arguments_) values.emplace_back(value);
+        pending_arguments_.clear();
+        incoming_channel_->InvokeMethod("arguments", std::make_unique<flutter::EncodableValue>(values));
+      }
+    } else if (call.method_name() == "release") { result->Success(); }
+    else { result->NotImplemented(); }
+  });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,6 +57,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  incoming_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -61,6 +79,20 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     }
   }
 
+  if (message == WM_COPYDATA && incoming_channel_) {
+    const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lparam);
+    if (data && data->dwData == 0x4c4c5348 && data->cbData > 0 && data->cbData <= 65536 && data->lpData) {
+      std::string payload(static_cast<const char*>(data->lpData), data->cbData - 1);
+      std::istringstream stream(payload);
+      flutter::EncodableList values;
+      for (std::string value; std::getline(stream, value);) {
+        if (values.size() >= 102) break;
+        if (incoming_ready_) values.emplace_back(value); else pending_arguments_.push_back(value);
+      }
+      if (!values.empty()) incoming_channel_->InvokeMethod("arguments", std::make_unique<flutter::EncodableValue>(values));
+      return TRUE;
+    }
+  }
   switch (message) {
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();

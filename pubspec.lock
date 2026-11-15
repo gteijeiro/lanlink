@@ -17,6 +17,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  bluez:
+    dependency: transitive
+    description:
+      name: bluez
+      sha256: "4747e4f25abf91a9a341a1c3f83a9081be9bdd189d913e391b6707db4214b4d2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.9.0"
   bonsoir:
     dependency: "direct main"
     description:
@@ -130,7 +138,7 @@ packages:
     source: hosted
     version: "2.9.0"
   dbus:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: dbus
       sha256: f7db8504e715b835f5ebe5fe74604ccd961d504c73389a5d8e81bafc2e2f3612
@@ -323,6 +331,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_web_bluetooth:
+    dependency: transitive
+    description:
+      name: flutter_web_bluetooth
+      sha256: "71fa37f699032b4416d56aeb5214363ba057f6aed4eba544cc26293e2582b85d"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.0"
   flutter_web_plugins:
     dependency: transitive
     description: flutter
@@ -661,6 +677,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
+  universal_ble:
+    dependency: "direct main"
+    description:
+      name: universal_ble
+      sha256: bfbc5dea17fa04e365d3870309d8a8a49067ff5195a84d4f6f73c92aa96bf7ed
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.3.0"
   url_launcher_linux:
     dependency: transitive
     description:

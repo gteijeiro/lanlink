@@ -1,0 +1,15 @@
+{
+  "box" : {
+    "c" : "W8ZL7KrU1XL7MSKbmasD269iJ0KBMY7D0-Px62RKYKitrZg=",
+    "m" : "zIBYljTIvPxpLXOjnNBRaA==",
+    "n" : "UTKvmMtemTOnq0Bx"
+  },
+  "clientNonce" : "cnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnI=",
+  "code" : "693800",
+  "commit" : "53bfbbf0a5c49f69fe98876eb115cea571f5bcbc714cbb7351a17be53a8e1c41",
+  "key" : "_x6M8NvEekrohNIyAqoptq7ctYSkzg8IpD7FDbBjHmI=",
+  "privateKey" : "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "remotePublic" : "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns=",
+  "serverNonce" : "MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=",
+  "session" : "abcdefghijklmnopqrstuv"
+}

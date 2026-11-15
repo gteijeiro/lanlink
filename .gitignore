@@ -50,3 +50,7 @@ app.*.map.json
 
 # Python deployment tooling
 __pycache__/
+
+# Native Windows share broker output
+windows/share_target/bin/
+windows/share_target/obj/

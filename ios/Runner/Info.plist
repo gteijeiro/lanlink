@@ -17,9 +17,16 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>LanLink encuentra dispositivos visibles y transfiere archivos directamente por la red local.</string>
 	<key>NSBonjourServices</key>
-	<array><string>_lanlink._tcp</string></array>
+	<array>
+		<string>_lanlink._tcp</string>
+		<string>_lanlink-direct._tcp</string>
+		<string>_lanlink-quick._tcp</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
-	<dict><key>NSAllowsLocalNetworking</key><true/></dict>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -78,5 +85,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>LanLink usa Bluetooth para compartir archivos cerca sin una Wi-Fi compartida.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>LanLink usa Bluetooth para compartir archivos cerca sin una Wi-Fi compartida.</string>
 </dict>
 </plist>

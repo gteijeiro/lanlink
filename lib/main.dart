@@ -15,14 +15,20 @@ import 'pairing_password.dart';
 import 'transfer_service.dart';
 import 'ui/app_theme.dart';
 import 'ui/lanlink_dashboard.dart';
+import 'sharing/direct_coordinator.dart';
+import 'sharing/incoming_shares.dart';
+import 'sharing/quick_transfer.dart';
+import 'sharing/quick_share_dialog.dart';
+import 'sharing/radio_rpc.dart';
 
-void main() {
+void main(List<String> arguments) {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const LanLinkApp());
+  runApp(LanLinkApp(arguments: arguments));
 }
 
 class LanLinkApp extends StatelessWidget {
-  const LanLinkApp({super.key});
+  const LanLinkApp({super.key, this.arguments = const []});
+  final List<String> arguments;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -30,12 +36,13 @@ class LanLinkApp extends StatelessWidget {
     debugShowCheckedModeBanner: false,
     theme: lanLinkTheme(),
     darkTheme: lanLinkTheme(brightness: Brightness.dark),
-    home: const HomePage(),
+    home: HomePage(arguments: arguments),
   );
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.arguments = const []});
+  final List<String> arguments;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -44,7 +51,13 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final TransferService _service = TransferService();
   DiscoveryService? _discovery;
+  DiscoveryService? _quickDiscovery;
   final TextEditingController _linkController = TextEditingController();
+  final _incomingShares = IncomingShares();
+  final _sharedQueue = <SharedBatch>[];
+  DirectCoordinator? _direct;
+  Timer? _directTimer;
+  bool _sharing = false;
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -79,12 +92,58 @@ class _HomePageState extends State<HomePage> {
         });
       }
     };
+    _incomingShares.onBatch = (batch) {
+      _sharedQueue.add(batch);
+      unawaited(_drainShared());
+    };
+    _incomingShares.onError = (message) {
+      if (mounted) setState(() => _transferError = message);
+    };
+    unawaited(_incomingShares.start(widget.arguments));
     _start();
   }
 
   Future<void> _start() async {
     try {
       await _service.start();
+      _service.quick.onOffer = _confirmQuick;
+      _service.quick.onProgress = (progress) {
+        if (mounted) {
+          setState(
+            () => _progress = TransferProgress(
+              'Equipo cercano',
+              progress.name,
+              progress.done,
+              progress.total,
+              progress.incoming,
+              progress.finished,
+            ),
+          );
+        }
+      };
+      _service.quick.onSessionState = (session, receiving) {
+        if (receiving && _direct?.active == true) {
+          unawaited(_direct!.acquire('incoming-$session'));
+        }
+        if (!receiving) {
+          unawaited(_direct?.release('incoming-$session'));
+        }
+      };
+      _service.quick.onError = (message) {
+        if (mounted) setState(() => _transferError = message);
+      };
+      _direct = DirectCoordinator(
+        id: _service.deviceId,
+        name: _service.deviceName,
+        handle: _service.quick.handle,
+      );
+
+      final quickDiscovery = DiscoveryService(
+        _service.deviceId,
+        serviceType: '_lanlink-quick._tcp',
+      );
+      _quickDiscovery = quickDiscovery;
+      unawaited(quickDiscovery.start().catchError((Object _) {}));
       final discovery = DiscoveryService(_service.deviceId);
       discovery.onChanged = () {
         if (mounted) setState(() {});
@@ -95,6 +154,13 @@ class _HomePageState extends State<HomePage> {
       };
       _discovery = discovery;
       _service.onInvitationChanged = (invitation) {
+        if (_service.directReceiving) {
+          unawaited(
+            _quickDiscovery
+                ?.advertise(invitation, _service.nearbyPublicKey)
+                .catchError((Object _) {}),
+          );
+        }
         if (_service.visibleOnLan) {
           unawaited(
             discovery
@@ -129,6 +195,7 @@ class _HomePageState extends State<HomePage> {
       _error = error.toString();
     }
     if (mounted) setState(() => _loading = false);
+    unawaited(_drainShared());
   }
 
   Future<void> _startDiscovery(DiscoveryService discovery) async {
@@ -563,6 +630,166 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<bool> _confirmQuick(QuickOffer offer) async {
+    if (!mounted) return false;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final route = DialogRoute<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text('${offer.senderName} quiere enviarte archivos'),
+        content: SizedBox(
+          width: 440,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Aceptá solo si este código coincide con el que ves en el otro equipo. No se guardará una vinculación.',
+                ),
+                const SizedBox(height: 16),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '${offer.code.substring(0, 3)} ${offer.code.substring(3)}',
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                for (final file in offer.files.take(10))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text('${file.name} · ${_size(file.size)}'),
+                  ),
+                if (offer.files.length > 10)
+                  Text('Y ${offer.files.length - 10} archivo(s) más.'),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Rechazar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('El código coincide · Aceptar'),
+          ),
+        ],
+      ),
+    );
+    final timer = Timer(const Duration(minutes: 2), () {
+      if (route.isActive) navigator.removeRoute(route, false);
+    });
+    try {
+      return await navigator.push(route) ?? false;
+    } finally {
+      timer.cancel();
+    }
+  }
+
+  List<QuickDestination> _quickLan() {
+    final result = <String, QuickDestination>{};
+    for (final device in [
+      ...?_discovery?.devices.values,
+      ...?_quickDiscovery?.devices.values,
+    ]) {
+      final invite = device.invitation;
+      result[device.id] = lanDestination(
+        id: device.id,
+        name: device.name,
+        hosts: invite.hosts,
+        port: invite.port,
+      );
+    }
+    for (final peer in _service.peers.values) {
+      if (peer.verified) {
+        result.putIfAbsent(
+          peer.id,
+          () => lanDestination(
+            id: peer.id,
+            name: peer.name,
+            hosts: [peer.host],
+            port: peer.port,
+          ),
+        );
+      }
+    }
+    return result.values.toList();
+  }
+
+  Future<void> _drainShared() async {
+    if (_loading || _error != null || _sharing || _direct == null || !mounted) {
+      return;
+    }
+    _sharing = true;
+    try {
+      while (_sharedQueue.isNotEmpty) {
+        if (!mounted) break;
+        final batch = _sharedQueue.removeAt(0);
+        try {
+          await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => QuickShareDialog(
+              files: batch.files,
+              deviceName: _service.deviceName,
+              direct: _direct!,
+              lan: _quickLan,
+            ),
+          );
+        } finally {
+          await _incomingShares.release(batch);
+        }
+      }
+    } finally {
+      _sharing = false;
+    }
+  }
+
+  Future<void> _shareNearby() async {
+    try {
+      final files = await openFiles();
+      if (files.isEmpty || !mounted) return;
+      _sharedQueue.add(SharedBatch(files));
+      await _drainShared();
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _transferError = 'No se pudieron preparar los archivos: $error',
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleDirectReceiving() async {
+    final direct = _direct;
+    if (direct == null) return;
+    _directTimer?.cancel();
+    if (_service.directReceiving) {
+      setState(() => _service.directReceiving = false);
+      await _quickDiscovery?.advertise(null, null);
+      await direct.release('receive');
+    } else {
+      setState(() => _service.directReceiving = true);
+      await _quickDiscovery?.advertise(
+        _service.invitation,
+        _service.nearbyPublicKey,
+      );
+      await direct.acquire('receive');
+      _directTimer = Timer(const Duration(minutes: 10), () {
+        if (mounted) setState(() => _service.directReceiving = false);
+        unawaited(_quickDiscovery?.advertise(null, null));
+        unawaited(direct.release('receive'));
+      });
+      _showMessage(
+        direct.message ?? 'Recepción cercana activada durante 10 minutos.',
+      );
+    }
+  }
+
   Future<void> _chooseDownloads() async {
     try {
       await _service.downloads.chooseDirectory();
@@ -592,6 +819,9 @@ class _HomePageState extends State<HomePage> {
           : _service.receivedFiles(),
       downloadsLabel: _service.downloads.label,
       linkController: _linkController,
+      onShareNearby: _shareNearby,
+      onDirectReceive: _toggleDirectReceiving,
+      directReceiving: _service.directReceiving,
       onEditName: _editDeviceName,
       onVisibleChanged: _discovery == null ? null : _setVisibleOnLan,
       onShowQr: _showQr,
@@ -617,8 +847,12 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    _directTimer?.cancel();
+    _incomingShares.dispose();
+    unawaited(_direct?.release('receive'));
     _reconnectTimer?.cancel();
     _linkController.dispose();
+    unawaited(_quickDiscovery?.dispose());
     unawaited(_discovery?.dispose());
     unawaited(_service.dispose());
     super.dispose();

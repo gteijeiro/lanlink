@@ -4,6 +4,7 @@
 
 #include "flutter_window.h"
 #include "utils.h"
+#include <string>
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -17,6 +18,30 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
+  HANDLE instance_mutex = ::CreateMutexW(nullptr, FALSE, L"Local\\LanLink.MainProcess");
+  if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+    HWND existing = nullptr;
+    for (int attempt = 0; attempt < 60 && !existing; ++attempt) {
+      existing = ::FindWindowW(L"LANLINK_RUNNER_WIN32_WINDOW", nullptr);
+      if (!existing) ::Sleep(50);
+    }
+    if (existing) {
+      std::string payload;
+      for (const auto& argument : GetCommandLineArguments()) { payload += argument + "\n"; }
+      if (!payload.empty() && payload.size() < 65536) {
+        COPYDATASTRUCT data{};
+        data.dwData = 0x4c4c5348;
+        data.cbData = static_cast<DWORD>(payload.size() + 1);
+        data.lpData = payload.data();
+        DWORD_PTR reply = 0;
+        ::SendMessageTimeoutW(existing, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&data), SMTO_ABORTIFHUNG, 3000, &reply);
+      }
+      ::ShowWindow(existing, SW_RESTORE); ::SetForegroundWindow(existing);
+    }
+    if (instance_mutex) ::CloseHandle(instance_mutex);
+    ::CoUninitialize();
+    return existing ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
   flutter::DartProject project(L"data");
 
   std::vector<std::string> command_line_arguments =
@@ -38,6 +63,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::DispatchMessage(&msg);
   }
 
+  if (instance_mutex) ::CloseHandle(instance_mutex);
   ::CoUninitialize();
   return EXIT_SUCCESS;
 }

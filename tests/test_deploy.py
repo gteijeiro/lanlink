@@ -38,6 +38,16 @@ class DeployTests(unittest.TestCase):
         self.assertEqual([row['status'] for row in results], ['skipped', 'verified'])
         self.assertEqual(json.loads((self.root / 'ios.json').read_text())['error'], 'iPhone bloqueado')
 
+    def test_build_only_prepares_without_discovering_android_or_windows(self):
+        self.args.build_only = True
+        for name in ('android', 'windows'):
+            target = self.target(name)
+            target.ci_artifact = lambda *args: self.root / 'verified-artifact'
+            target.wait = lambda *args: self.fail('Build-only attempted to contact a device')
+            result = target.execute()
+            self.assertEqual(result['status'], 'prepared')
+            self.assertEqual(result['artifact'], str(self.root / 'verified-artifact'))
+
     def test_timeout_is_recorded_and_does_not_loop_forever(self):
         target = self.target('android')
         target.args.wait_timeout = 0

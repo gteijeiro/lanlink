@@ -39,6 +39,9 @@ class LanLinkDashboard extends StatefulWidget {
     this.canOpenFiles,
     this.usesShareSheet,
     this.onChooseDownloads,
+    this.onShareNearby,
+    this.onDirectReceive,
+    this.directReceiving = false,
   });
   final String deviceName, downloadsLabel;
   final bool visible, loading, busy;
@@ -61,7 +64,8 @@ class LanLinkDashboard extends StatefulWidget {
   final ValueChanged<ReceivedDownload> onOpenFile, onExportFile;
   final TransferProgress? progress;
   final bool? canOpenFiles, usesShareSheet;
-  final VoidCallback? onChooseDownloads;
+  final VoidCallback? onChooseDownloads, onShareNearby, onDirectReceive;
+  final bool directReceiving;
 
   @override
   State<LanLinkDashboard> createState() => _LanLinkDashboardState();
@@ -553,6 +557,52 @@ class _LanLinkDashboardState extends State<LanLinkDashboard> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (!wide) ...[_localDevice(), const SizedBox(height: 24)],
+          if (widget.onShareNearby != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Compartir cerca',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Enviá archivos una sola vez, sin guardar una vinculación.',
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: disabled ? null : widget.onShareNearby,
+                          icon: const Icon(Icons.near_me_outlined),
+                          label: const Text('Elegir archivos'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: disabled ? null : widget.onDirectReceive,
+                          icon: Icon(
+                            widget.directReceiving
+                                ? Icons.bluetooth_connected
+                                : Icons.bluetooth,
+                          ),
+                          label: Text(
+                            widget.directReceiving
+                                ? 'Dejar de recibir cerca'
+                                : 'Recibir cerca · 10 min',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
           if (split)
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,

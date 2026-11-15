@@ -19,7 +19,8 @@ class NearbyDevice {
 
 // TXT records contain only the public half of the ephemeral pairing key.
 class DiscoveryService {
-  DiscoveryService(this.ownDeviceId);
+  DiscoveryService(this.ownDeviceId, {this.serviceType = lanLinkServiceType});
+  final String serviceType;
 
   final String ownDeviceId;
   final Map<String, NearbyDevice> devices = {};
@@ -42,10 +43,7 @@ class DiscoveryService {
           .toList();
 
   Future<void> start() async {
-    final discovery = BonsoirDiscovery(
-      type: lanLinkServiceType,
-      printLogs: false,
-    );
+    final discovery = BonsoirDiscovery(type: serviceType, printLogs: false);
     await discovery.initialize();
     _discovery = discovery;
     _events = discovery.eventStream!.listen(_onEvent, onError: onError);
@@ -67,13 +65,15 @@ class DiscoveryService {
         printLogs: false,
         service: BonsoirService(
           name: 'LanLink ${invitation.id}',
-          type: lanLinkServiceType,
+          type: serviceType,
           port: invitation.port,
           attributes: {
             'v': '$protocolVersion',
             'id': invitation.id,
             'name': invitation.name,
             'key': publicKey,
+            'quick': '1',
+            'os': Platform.operatingSystem,
           },
         ),
       );

@@ -343,6 +343,10 @@ class Target:
         signature = self.run(['codesign', '-dv', '--verbose=4', app])
         if f'TeamIdentifier={team}' not in signature:
             raise DeploymentError('La firma del Mac pertenece a otro equipo.')
+        if getattr(self.args, 'build_only', False):
+            self.result.update(artifact=str(archive), verification='signature, team, bundle ID, version; not installed')
+            shutil.rmtree(stage)
+            return
         destination = Path(self.args.mac_app).expanduser().resolve()
         pending = destination.with_name(f'.LanLink-update-{int(time.time())}.app')
         self.run(['ditto', app, pending])
@@ -464,6 +468,9 @@ class Target:
 
     def android(self):
         artifact = self.ci_artifact('android-release.yml', 'LanLink-Android-prueba-firmada', 'app-release.apk')
+        if getattr(self.args, 'build_only', False):
+            self.result.update(artifact=str(artifact), verification='artifact commit and SHA256; not installed')
+            return
         device = self.wait(self.android_device, 'Activá Depuración inalámbrica y autorizá este Mac. Podés saltear Android.')
         expected_serial = self.run(['adb', '-s', device, 'shell', 'getprop', 'ro.serialno']).strip()
         def install():
@@ -489,6 +496,9 @@ class Target:
 
     def windows(self):
         artifact = self.ci_artifact('windows-installer.yml', 'LanLink-Windows-x64-Setup', 'LanLink-Windows-x64-Setup.exe')
+        if getattr(self.args, 'build_only', False):
+            self.result.update(artifact=str(artifact), verification='artifact commit and SHA256; not installed')
+            return
         vm = self.args.vm
         if not vm:
             rows = json.loads(self.run(['prlctl', 'list', '-a', '-j']))
@@ -530,7 +540,8 @@ Write-Output 'LANLINK_VERIFIED';'''
         return devices[0]['hardwareProperties']['udid']
 
     def ios(self):
-        device = self.wait(self.ios_device, 'Conectá el iPhone por USB o Wi-Fi y mantenelo desbloqueado.')
+        build_only = getattr(self.args, 'build_only', False)
+        device = self.args.ios if build_only else self.wait(self.ios_device, 'Conectá el iPhone por USB o Wi-Fi y mantenelo desbloqueado.')
         _, team = self.signing()
         source = self.source()
         archive = self.cache / 'LanLink-iOS.zip'
@@ -561,10 +572,14 @@ Write-Output 'LANLINK_VERIFIED';'''
         expiry = profile['ExpirationDate']
         if expiry <= dt.datetime.now(dt.timezone.utc).replace(tzinfo=None):
             raise DeploymentError('El perfil iOS venció. Eliminá solo la caché iOS de esta revisión y recompilá con un perfil renovado.')
-        if device not in profile.get('ProvisionedDevices', []):
+        if device and device not in profile.get('ProvisionedDevices', []):
             raise DeploymentError('Este iPhone no está incluido en el perfil de firma.')
         self.result['profile_expires_utc'] = expiry.isoformat() + 'Z'
         self.manifest(archive, profile_expires_utc=expiry.isoformat() + 'Z')
+        if build_only:
+            self.result.update(artifact=str(archive), verification='signature, profile expiry/team, bundle version; not installed')
+            shutil.rmtree(stage)
+            return
         self.wait(lambda: self.run(['xcrun', 'devicectl', 'device', 'install', 'app', '--device', device, app], timeout=180),
                   'Desbloqueá el iPhone y mantené la pantalla encendida; se reintentará la instalación.')
         self.wait(lambda: self.run(['xcrun', 'devicectl', 'device', 'process', 'launch', '--device', device,
@@ -581,8 +596,8 @@ Write-Output 'LANLINK_VERIFIED';'''
         self.say(f'Inicio: {self.version}+{self.build}, commit {self.head}')
         try:
             getattr(self, self.name)()
-            self.result['status'] = 'verified'
-            self.say('VERIFICADO')
+            self.result['status'] = 'prepared' if getattr(self.args, 'build_only', False) else 'verified'
+            self.say('PREPARADO SIN INSTALAR' if getattr(self.args, 'build_only', False) else 'VERIFICADO')
         except Skipped as error:
             self.result.update(status='skipped', error=str(error))
             self.say('SALTADO: ' + str(error))
@@ -612,6 +627,7 @@ def main():
     parser.add_argument('--mac-app', default=str(Path.home() / 'Applications/LanLink.app'))
     parser.add_argument('--ref', default='main', help='Ref de GitHub que contiene HEAD')
     parser.add_argument('--rebuild', action='store_true', help='Recompilar los paquetes locales macOS/iOS aunque estén en caché')
+    parser.add_argument('--build-only', action='store_true', help='Compilar y verificar paquetes sin conectar ni instalar en los dispositivos')
     parser.add_argument('--plan', action='store_true', help='Mostrar alcance sin compilar ni instalar')
     args = parser.parse_args()
     devices = list(dict.fromkeys(args.devices.split(',')))

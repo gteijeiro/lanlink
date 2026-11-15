@@ -1,6 +1,6 @@
 # LanLink
 
-Aplicación instalada para enviar archivos directamente por una red local entre Android, iOS, Windows, macOS y Linux. No usa navegador, cuenta ni servidor externo.
+Aplicación instalada para enviar archivos por red local o conexiones cercanas entre Android, iOS, Windows, macOS y Linux. No usa navegador, cuenta ni servidor externo.
 
 ## Estado
 
@@ -8,7 +8,11 @@ La app permite encontrar equipos visibles en la red local y conectarse sin QR, o
 
 La cámara para leer QR funciona en Android, iOS y macOS. En Windows y Linux se puede pegar el enlace contenido en el QR. Todos los sistemas pueden **mostrar** un QR. El enlace es una invitación secreta de un solo uso; no debe publicarse ni enviarse a personas desconocidas.
 
-## Uso
+## Compartir desde otras aplicaciones (1.4)
+
+LanLink incorpora destinos nativos para compartir archivos, envíos temporales sin vínculo guardado y conexión directa por Wi-Fi entre Apple o Bluetooth LE según el hardware. **[Guía de uso, límites y despliegue paso a paso](docs/compartir-y-desplegar.md)**. Estas rutas nuevas necesitan validación con dispositivos físicos después de instalar; las pruebas automáticas y compilaciones no sustituyen esa comprobación.
+
+## Uso con dispositivos vinculados
 
 1. Instalá y abrí LanLink en los dos dispositivos, conectados a la misma red Wi-Fi o Ethernet.
    LanLink propone un nombre visible a partir del equipo. Podés cambiarlo con el lápiz junto a **Este dispositivo**; el cambio se guarda para los próximos inicios y anuncios en la red.
@@ -18,7 +22,7 @@ La cámara para leer QR funciona en Android, iOS y macOS. En Windows y Linux se 
 5. En **Mis dispositivos**, elegí **Enviar archivo** y aceptá la solicitud en el receptor.
 6. El archivo queda en **Descargas/LanLink** (en Android, **Download/LanLink**). En iPhone, el destino inicial está en **Archivos → En mi iPhone → LanLink → Downloads/LanLink**; para usar la carpeta Descargas de iCloud u otra ubicación, tocá **Elegir carpeta Descargas** y seleccioná esa carpeta una vez. LanLink crea la subcarpeta **LanLink** y conserva la autorización. iOS no permite elegir automáticamente una carpeta ajena a la app. En Android e iOS, usá el botón de compartir para guardarlo en otra ubicación; en escritorio, el botón de exportar abre un diálogo para elegir destino.
 
-Las dos aplicaciones deben permanecer abiertas durante la transferencia. Si cambia la red o la IP, LanLink busca otra vez al equipo guardado y comprueba su identidad con la clave secreta del vínculo antes de actualizar su dirección. Al menos uno de los dos equipos debe tener **Visible en la red** activado. La indicación **Identidad verificada** señala que la dirección se autenticó en esta sesión; el nombre o la IP publicados por Bonjour no bastan para identificar un equipo. El puerto TCP usado es `47829`; el firewall del equipo debe permitir conexiones locales a la app. Bonjour/mDNS debe poder circular por la red; algunas redes de invitados aíslan los dispositivos. En Linux se necesita el servicio Avahi. La aplicación no incluye todavía transferencia entre redes distintas, reanudación de envíos interrumpidos ni recepción en segundo plano.
+Las dos aplicaciones deben permanecer abiertas durante la transferencia. Si cambia la red o la IP, LanLink busca otra vez al equipo guardado y comprueba su identidad con la clave secreta del vínculo antes de actualizar su dirección. Al menos uno de los dos equipos debe tener **Visible en la red** activado. La indicación **Identidad verificada** señala que la dirección se autenticó en esta sesión; el nombre o la IP publicados por Bonjour no bastan para identificar un equipo. El puerto TCP usado es `47829`; el firewall del equipo debe permitir conexiones locales a la app. Bonjour/mDNS debe poder circular por la red; algunas redes de invitados aíslan los dispositivos. En Linux se necesita el servicio Avahi. Este flujo de dispositivos vinculados requiere una red local. El modo Compartir cerca agrega conexiones directas según sus requisitos; no incluye transferencia por Internet, reanudación de envíos interrumpidos ni recepción permanente en segundo plano.
 
 Los archivos recibidos con versiones anteriores se migran al nuevo destino al abrir la app. No se sobrescriben archivos con el mismo nombre. En Android moderno se publica cada archivo verificado con MediaStore, sin pedir acceso a todo el almacenamiento; las transferencias incompletas quedan privadas.
 

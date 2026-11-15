@@ -21,12 +21,29 @@ import java.io.File
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
+    private var pendingBluetoothPermission: MethodChannel.Result? = null
+    private var incomingShares: IncomingShares? = null
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        incomingShares?.accept(intent)
+    }
+
     private val worker = Executors.newSingleThreadExecutor()
     private var pendingPermission: MethodChannel.Result? = null
     private val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/LanLink/"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        incomingShares = IncomingShares(this, flutterEngine.dartExecutor.binaryMessenger)
+        incomingShares?.accept(intent)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lanlink/bluetooth-permission").setMethodCallHandler { call, result ->
+            if (call.method != "advertise") result.notImplemented()
+            else if (Build.VERSION.SDK_INT < 31 || checkSelfPermission(Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED) result.success(true)
+            else if (pendingBluetoothPermission != null) result.error("busy", "Ya hay un permiso pendiente.", null)
+            else { pendingBluetoothPermission = result; requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE), 4783) }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lanlink/downloads")
             .setMethodCallHandler { call, result ->
                 if (call.method == "open") {
@@ -86,6 +103,10 @@ class MainActivity : FlutterActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 4783) {
+            pendingBluetoothPermission?.success(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+            pendingBluetoothPermission = null
+        }
         if (requestCode == 4782) {
             val result = pendingPermission
             pendingPermission = null

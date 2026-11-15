@@ -11,6 +11,7 @@ import file_selector_macos
 import flutter_secure_storage_darwin
 import mobile_scanner
 import share_plus
+import universal_ble
 
 func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   SwiftBonsoirPlugin.register(with: registry.registrar(forPlugin: "SwiftBonsoirPlugin"))
@@ -19,4 +20,5 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   FlutterSecureStorageDarwinPlugin.register(with: registry.registrar(forPlugin: "FlutterSecureStorageDarwinPlugin"))
   MobileScannerPlugin.register(with: registry.registrar(forPlugin: "MobileScannerPlugin"))
   SharePlusMacosPlugin.register(with: registry.registrar(forPlugin: "SharePlusMacosPlugin"))
+  UniversalBlePlugin.register(with: registry.registrar(forPlugin: "UniversalBlePlugin"))
 }

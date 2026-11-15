@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  private var directBridge: DirectFlutterBridge?
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -14,6 +15,7 @@ import UniformTypeIdentifiers
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LanLinkDownloads")!
+    directBridge = DirectFlutterBridge(messenger: registrar.messenger())
     let downloads = LanLinkDownloads()
     let channel = FlutterMethodChannel(name: "lanlink/downloads", binaryMessenger: registrar.messenger())
     channel.setMethodCallHandler { call, result in downloads.handle(call, result: result) }

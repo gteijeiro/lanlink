@@ -13,6 +13,9 @@ import 'package:path_provider/path_provider.dart';
 
 import 'download_storage.dart';
 import 'pairing_password.dart';
+import 'crypto_envelope.dart';
+import 'sharing/quick_transfer.dart';
+export 'crypto_envelope.dart';
 
 const protocolVersion = 1;
 const maxMessageBytes = 1024 * 1024;
@@ -275,62 +278,6 @@ class SecureKeyValueStore implements KeyValueStore {
   Future<void> delete(String key) => _storage.delete(key: key);
 }
 
-class CryptoEnvelope {
-  static final _cipher = AesGcm.with256bits();
-
-  static Future<Map<String, String>> encrypt(
-    List<int> bytes,
-    String key, {
-    String aad = '',
-  }) async {
-    final nonce = List<int>.generate(12, (_) => Random.secure().nextInt(256));
-    final box = await _cipher.encrypt(
-      bytes,
-      secretKey: SecretKey(_decode64(key)),
-      nonce: nonce,
-      aad: utf8.encode(aad),
-    );
-    return {
-      'n': base64Url.encode(box.nonce),
-      'c': base64Url.encode(box.cipherText),
-      'm': base64Url.encode(box.mac.bytes),
-    };
-  }
-
-  static Future<Uint8List> decrypt(
-    Map<String, dynamic> envelope,
-    String key, {
-    String aad = '',
-  }) async {
-    final box = SecretBox(
-      _decode64(envelope['c'] as String),
-      nonce: _decode64(envelope['n'] as String),
-      mac: Mac(_decode64(envelope['m'] as String)),
-    );
-    return Uint8List.fromList(
-      await _cipher.decrypt(
-        box,
-        secretKey: SecretKey(_decode64(key)),
-        aad: utf8.encode(aad),
-      ),
-    );
-  }
-
-  static Future<Map<String, String>> encryptJson(
-    Map<String, Object?> value,
-    String key, {
-    String aad = '',
-  }) => encrypt(utf8.encode(jsonEncode(value)), key, aad: aad);
-
-  static Future<Map<String, dynamic>> decryptJson(
-    Map<String, dynamic> value,
-    String key, {
-    String aad = '',
-  }) async =>
-      jsonDecode(utf8.decode(await decrypt(value, key, aad: aad)))
-          as Map<String, dynamic>;
-}
-
 class TransferService {
   TransferService({
     KeyValueStore? storage,
@@ -344,6 +291,14 @@ class TransferService {
        downloads =
            downloadStorage ??
            DownloadStorage(overrideDirectory: receivedDirectory);
+
+  bool directReceiving = false;
+  QuickReceiver? _quickReceiver;
+  QuickReceiver get quick => _quickReceiver ??= QuickReceiver(
+    downloads: downloads,
+    name: () => deviceName,
+    enabled: () => visibleOnLan || directReceiving,
+  );
 
   final KeyValueStore _storage;
   final DownloadStorage downloads;
@@ -1286,29 +1241,42 @@ class TransferService {
         request.response.statusCode = HttpStatus.methodNotAllowed;
       } else {
         final body = await _readJson(request);
-        final result = switch (request.uri.path) {
-          '/pair' => await _handlePair(body, request),
-          '/pair-nearby' => await _handleNearbyPair(body, request),
-          '/pair-key' => await _handleNearbyPair(
-            body,
-            request,
-            withPairingKey: true,
-          ),
-          '/unpair' => await _handleUnpair(body),
-          '/identify/start' => await _handleIdentityStart(body, request),
-          '/identify/finish' => await _handleIdentityFinish(body, request),
-          '/offer' => await _handleOffer(body),
-          '/chunk' => await _handleChunk(body),
-          _ => throw const FormatException('Ruta desconocida.'),
-        };
+        final result = request.uri.path.startsWith('/quick/')
+            ? await quick.handle(request.uri.path, body)
+            : switch (request.uri.path) {
+                '/pair' => await _handlePair(body, request),
+                '/pair-nearby' => await _handleNearbyPair(body, request),
+                '/pair-key' => await _handleNearbyPair(
+                  body,
+                  request,
+                  withPairingKey: true,
+                ),
+                '/unpair' => await _handleUnpair(body),
+                '/identify/start' => await _handleIdentityStart(body, request),
+                '/identify/finish' => await _handleIdentityFinish(
+                  body,
+                  request,
+                ),
+                '/offer' => await _handleOffer(body),
+                '/chunk' => await _handleChunk(body),
+                _ => throw const FormatException('Ruta desconocida.'),
+              };
         request.response.headers.contentType = ContentType.json;
-        request.response.write(jsonEncode(result));
+        final payload = jsonEncode(result);
+        if (request.uri.path.startsWith('/quick/')) {
+          request.response.contentLength = utf8.encode(payload).length;
+        }
+        request.response.write(payload);
       }
     } catch (error) {
       request.response.statusCode = error is FormatException
           ? HttpStatus.badRequest
           : HttpStatus.forbidden;
-      request.response.write(error.toString());
+      request.response.write(
+        request.uri.path.startsWith('/quick/')
+            ? 'No se pudo completar el envío temporal.'
+            : error.toString(),
+      );
     } finally {
       await request.response.close();
     }
@@ -1691,6 +1659,7 @@ class TransferService {
 
   Future<void> dispose() async {
     _networkTimer?.cancel();
+    await _quickReceiver?.dispose();
     _client.close(force: true);
     await _server?.close(force: true);
   }

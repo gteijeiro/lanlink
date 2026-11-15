@@ -1,4 +1,4 @@
-#define AppVersion "1.3.0"
+#define AppVersion "1.4.0"
 
 [Setup]
 AppId={{9E4B814C-68CC-4FA3-944E-208A58A7CEAD}
@@ -23,6 +23,8 @@ Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ign
 [Icons]
 Name: "{group}\LanLink"; Filename: "{app}\lanlink.exe"
 Name: "{autodesktop}\LanLink"; Filename: "{app}\lanlink.exe"; Tasks: desktopicon
+
+Name: "{userappdata}\Microsoft\Windows\SendTo\LanLink"; Filename: "{app}\lanlink.exe"
 
 [Tasks]
 Name: desktopicon; Description: "Crear acceso directo en el escritorio"

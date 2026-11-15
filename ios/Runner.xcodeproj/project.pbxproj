@@ -8,17 +8,32 @@
 
 /* Begin PBXBuildFile section */
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
+		172FCF1EC21DE28C020C8793 /* DirectPeerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 231CC1966917D8240216C750 /* DirectPeerEngine.swift */; };
+		1ECC3AD234211A0A5C860868 /* QuickNativeSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9300B81CAE9B542E0273592F /* QuickNativeSender.swift */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
+		428D0CAE327D6179CF051128 /* LanLinkShare.appex in Embed Share Extension */ = {isa = PBXBuildFile; fileRef = C2EAC8AFC0F2B271C0BB2270 /* LanLinkShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		47B90AE7AF93E2EDFC5A0077 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5E1791C30794E66755DCA0 /* ShareViewController.swift */; };
+		6A83ECF76F5609A3AACF6CAB /* DirectFlutterBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BE2F41149F59141F0E8EC7 /* DirectFlutterBridge.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
+		85C979ABD69F00A12056E79F /* NativeBluetoothClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BF5369A23249C22A722AE5F /* NativeBluetoothClient.swift */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		B622428E9158E32C41E15EBE /* DirectPeerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 231CC1966917D8240216C750 /* DirectPeerEngine.swift */; };
+		DBE9666AE09E7933336182F8 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 92E1035713555EE046247C46 /* Foundation.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		01F8F511E00E85F388F59449 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B412AA462A692F138B1590C6;
+			remoteInfo = LanLinkShare;
+		};
 		331C8085294A63A400263BE5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
@@ -39,19 +54,35 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D387773C8FC3B53DE2B5443F /* Embed Share Extension */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				428D0CAE327D6179CF051128 /* LanLinkShare.appex in Embed Share Extension */,
+			);
+			name = "Embed Share Extension";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
+		231CC1966917D8240216C750 /* DirectPeerEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DirectPeerEngine.swift; path = Shared/DirectPeerEngine.swift; sourceTree = "<group>"; };
+		2BF5369A23249C22A722AE5F /* NativeBluetoothClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NativeBluetoothClient.swift; path = Shared/NativeBluetoothClient.swift; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
+		64BE2F41149F59141F0E8EC7 /* DirectFlutterBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DirectFlutterBridge.swift; path = Shared/DirectFlutterBridge.swift; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
+		92E1035713555EE046247C46 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		9300B81CAE9B542E0273592F /* QuickNativeSender.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = QuickNativeSender.swift; path = Shared/QuickNativeSender.swift; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
 		97C146EE1CF9000F007C117D /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -59,9 +90,19 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C2EAC8AFC0F2B271C0BB2270 /* LanLinkShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LanLinkShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DF5E1791C30794E66755DCA0 /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShareViewController.swift; path = ShareExtension/ShareViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		7A9D44E09209124229FB16A5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DBE9666AE09E7933336182F8 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		97C146EB1CF9000F007C117D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -73,12 +114,28 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		23A090EE5BABBA36D68D1B35 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3A7E217E79D1E9E0177DC7EC /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		331C8082294A63A400263BE5 /* RunnerTests */ = {
 			isa = PBXGroup;
 			children = (
 				331C807B294A618700263BE5 /* RunnerTests.swift */,
 			);
 			path = RunnerTests;
+			sourceTree = "<group>";
+		};
+		3A7E217E79D1E9E0177DC7EC /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				92E1035713555EE046247C46 /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 		9740EEB11CF90186004384FC /* Flutter */ = {
@@ -100,6 +157,8 @@
 				97C146F01CF9000F007C117D /* Runner */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
+				23A090EE5BABBA36D68D1B35 /* Frameworks */,
+				CB8EADBE955D1B585C38542E /* LanLink Native */,
 			);
 			sourceTree = "<group>";
 		};
@@ -108,6 +167,7 @@
 			children = (
 				97C146EE1CF9000F007C117D /* Runner.app */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
+				C2EAC8AFC0F2B271C0BB2270 /* LanLinkShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -126,6 +186,19 @@
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
+			sourceTree = "<group>";
+		};
+		CB8EADBE955D1B585C38542E /* LanLink Native */ = {
+			isa = PBXGroup;
+			children = (
+				231CC1966917D8240216C750 /* DirectPeerEngine.swift */,
+				9300B81CAE9B542E0273592F /* QuickNativeSender.swift */,
+				2BF5369A23249C22A722AE5F /* NativeBluetoothClient.swift */,
+				DF5E1791C30794E66755DCA0 /* ShareViewController.swift */,
+				64BE2F41149F59141F0E8EC7 /* DirectFlutterBridge.swift */,
+			);
+			name = "LanLink Native";
+			path = ../apple;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -158,10 +231,12 @@
 				97C146EC1CF9000F007C117D /* Resources */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
+				D387773C8FC3B53DE2B5443F /* Embed Share Extension */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				42784333837C9A29902A8BD9 /* PBXTargetDependency */,
 			);
 			name = Runner;
 			packageProductDependencies = (
@@ -170,6 +245,23 @@
 			productName = Runner;
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B412AA462A692F138B1590C6 /* LanLinkShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5A23F1C729718112C716A53C /* Build configuration list for PBXNativeTarget "LanLinkShare" */;
+			buildPhases = (
+				D81A5AC5BF31F2733F7A7706 /* Sources */,
+				7A9D44E09209124229FB16A5 /* Frameworks */,
+				E32C8FC696E2E4B271907CBD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LanLinkShare;
+			productName = LanLinkShare;
+			productReference = C2EAC8AFC0F2B271C0BB2270 /* LanLinkShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -201,7 +293,7 @@
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
 			packageReferences = (
-				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */,
+				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "FlutterGeneratedPluginSwiftPackage" */,
 			);
 			productRefGroup = 97C146EF1CF9000F007C117D /* Products */;
 			projectDirPath = "";
@@ -209,6 +301,7 @@
 			targets = (
 				97C146ED1CF9000F007C117D /* Runner */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
+				B412AA462A692F138B1590C6 /* LanLinkShare */,
 			);
 		};
 /* End PBXProject section */
@@ -229,6 +322,13 @@
 				3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */,
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E32C8FC696E2E4B271907CBD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -284,6 +384,19 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
+				172FCF1EC21DE28C020C8793 /* DirectPeerEngine.swift in Sources */,
+				6A83ECF76F5609A3AACF6CAB /* DirectFlutterBridge.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D81A5AC5BF31F2733F7A7706 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B622428E9158E32C41E15EBE /* DirectPeerEngine.swift in Sources */,
+				1ECC3AD234211A0A5C860868 /* QuickNativeSender.swift in Sources */,
+				85C979ABD69F00A12056E79F /* NativeBluetoothClient.swift in Sources */,
+				47B90AE7AF93E2EDFC5A0077 /* ShareViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -294,6 +407,12 @@
 			isa = PBXTargetDependency;
 			target = 97C146ED1CF9000F007C117D /* Runner */;
 			targetProxy = 331C8085294A63A400263BE5 /* PBXContainerItemProxy */;
+		};
+		42784333837C9A29902A8BD9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = LanLinkShare;
+			target = B412AA462A692F138B1590C6 /* LanLinkShare */;
+			targetProxy = 01F8F511E00E85F388F59449 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -435,6 +554,48 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
+			};
+			name = Profile;
+		};
+		35EF616E6775C9C461375AFE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = 6WV47G2CGZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "../apple/ShareExtension/Info-ios.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gteijeiro.lanlink.share;
+				PRODUCT_NAME = LanLinkShare;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		3AB7B78931C6445B4CDBBC10 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = 6WV47G2CGZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "../apple/ShareExtension/Info-ios.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gteijeiro.lanlink.share;
+				PRODUCT_NAME = LanLinkShare;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
 			};
 			name = Profile;
 		};
@@ -594,6 +755,26 @@
 			};
 			name = Release;
 		};
+		C309D529677012B5686BDD95 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = 6WV47G2CGZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "../apple/ShareExtension/Info-ios.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gteijeiro.lanlink.share;
+				PRODUCT_NAME = LanLinkShare;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -603,6 +784,16 @@
 				331C8088294A63A400263BE5 /* Debug */,
 				331C8089294A63A400263BE5 /* Release */,
 				331C808A294A63A400263BE5 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5A23F1C729718112C716A53C /* Build configuration list for PBXNativeTarget "LanLinkShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				35EF616E6775C9C461375AFE /* Release */,
+				C309D529677012B5686BDD95 /* Debug */,
+				3AB7B78931C6445B4CDBBC10 /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -630,7 +821,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */ = {
+		781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "FlutterGeneratedPluginSwiftPackage" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage;
 		};
