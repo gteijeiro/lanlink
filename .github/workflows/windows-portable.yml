@@ -53,6 +53,7 @@ jobs:
             }
           }
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: LanLink-Windows-x64-portable
           path: |
@@ -60,3 +61,10 @@ jobs:
             build/windows-portable/*.sha256
             build/windows-portable/smoke-test.json
           retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: LanLink-Windows-x64-package-diagnostics
+          path: build/windows-portable/LanLink-Windows-x64
+          if-no-files-found: ignore
+          retention-days: 7

@@ -9,6 +9,15 @@ Set-StrictMode -Version Latest
 function Assert-X64([string]$Path) {
     $reader = [System.IO.BinaryReader]::new([System.IO.File]::OpenRead($Path))
     try {
+        if ([System.IO.Path]::GetFileName($Path) -eq 'app.so') {
+            # Dart's AOT snapshot uses ELF even on Windows; the engine loads it.
+            if ($reader.ReadUInt32() -ne 0x464C457F -or $reader.ReadByte() -ne 2 -or $reader.ReadByte() -ne 1) {
+                throw "Snapshot AOT inválido o de otra arquitectura: $Path"
+            }
+            $reader.BaseStream.Position = 18
+            if ($reader.ReadUInt16() -ne 62) { throw "El snapshot AOT no es x64: $Path" }
+            return
+        }
         if ($reader.ReadUInt16() -ne 0x5A4D) { throw "No es un ejecutable PE: $Path" }
         $reader.BaseStream.Position = 0x3C
         $offset = $reader.ReadInt32()
