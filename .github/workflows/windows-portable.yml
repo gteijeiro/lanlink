@@ -1,0 +1,62 @@
+name: Windows portable x64
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['build/windows-x64-portable-*']
+    paths:
+      - '.github/workflows/windows-portable.yml'
+      - 'scripts/package_windows_portable.ps1'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - name: Verificar transferencias y almacenamiento
+        run: flutter test
+      - name: Compilar para Windows x64
+        run: flutter build windows --release --target-platform windows-x64
+      - name: Crear ZIP portable con dependencias
+        shell: pwsh
+        run: ./scripts/package_windows_portable.ps1 -Commit '${{ github.sha }}'
+      - name: Verificar arranque desde el ZIP extraído
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem build/windows-portable -Filter '*.zip' | Select-Object -First 1
+          $destination = Join-Path $env:RUNNER_TEMP 'LanLink portable smoke test'
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $destination
+          $app = Join-Path $destination 'LanLink-Windows-x64'
+          $process = Start-Process -FilePath (Join-Path $app 'lanlink.exe') -WorkingDirectory $app -PassThru
+          try {
+            Start-Sleep -Seconds 15
+            $process.Refresh()
+            if ($process.HasExited) { throw "LanLink se cerró al arrancar: $($process.ExitCode)" }
+            if ($process.MainWindowHandle -eq 0) { throw 'LanLink no creó su ventana' }
+            @{ running = $true; window = $true; architecture = 'x64'; extractedZip = $true; commit = '${{ github.sha }}' } |
+              ConvertTo-Json | Set-Content build/windows-portable/smoke-test.json
+          } finally {
+            if (-not $process.HasExited) {
+              $null = $process.CloseMainWindow()
+              if (-not $process.WaitForExit(5000)) { $process.Kill() }
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LanLink-Windows-x64-portable
+          path: |
+            build/windows-portable/*.zip
+            build/windows-portable/*.sha256
+            build/windows-portable/smoke-test.json
+          retention-days: 30
