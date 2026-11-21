@@ -77,7 +77,7 @@ Compilación: $Commit
 @{ version = $versionLine; commit = $Commit; platform = 'windows'; architecture = 'x64'; configuration = 'Release'; portable = $true } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'BUILD.json') -Encoding utf8
 $hashes = foreach ($file in Get-ChildItem -LiteralPath $stage -File -Recurse | Sort-Object FullName) {
-    $relative = [System.IO.Path]::GetRelativePath($stage, $file.FullName).Replace('\', '/')
+    $relative = [System.IO.Path]::GetRelativePath($stage, $file.FullName).Replace([char]92, [char]47)
     '{0}  {1}' -f (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $relative
 }
 $hashes | Set-Content -LiteralPath (Join-Path $stage 'FILES.sha256') -Encoding utf8

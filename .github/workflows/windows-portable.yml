@@ -27,7 +27,7 @@ jobs:
       - name: Verificar transferencias y almacenamiento
         run: flutter test
       - name: Compilar para Windows x64
-        run: flutter build windows --release --target-platform windows-x64
+        run: flutter build windows --release
       - name: Crear ZIP portable con dependencias
         shell: pwsh
         run: ./scripts/package_windows_portable.ps1 -Commit '${{ github.sha }}'
