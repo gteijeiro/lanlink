@@ -65,6 +65,13 @@ El paquete queda en `build/macos-signed/dist/LanLink-macOS-signed.zip`. El scrip
 
 ## Protocolo y seguridad
 
+Desde 1.4.2, los dispositivos vinculados que tengan ambos la actualización usan
+transmisión binaria continua por Wi-Fi: una solicitud para el archivo, sin esperar
+una confirmación por cada bloque pequeño. Se conservan AES-256-GCM, SHA-256 y los
+vínculos existentes. La recepción mantiene abierto el temporal y sincroniza el
+disco al terminar. Con versiones anteriores se utiliza automáticamente el flujo
+compatible. La velocidad efectiva sigue dependiendo de la red y de los equipos.
+
 El protocolo v1 está descrito en [docs/protocol.md](docs/protocol.md). Usa HTTP sobre TCP para transportar mensajes cifrados por la propia aplicación. Aunque la conexión HTTP local no emplea TLS, el emparejamiento cercano usa X25519 y cada mensaje de archivo se protege con AES-256-GCM. El anuncio Bonjour contiene una clave pública temporal, nunca una clave secreta. La app guarda las claves de pares en el almacenamiento seguro del sistema. La aprobación por nombre no protege frente a un atacante activo que suplante anuncios en la red; para redes que no sean de confianza, preferí el QR. Este protocolo todavía no tiene auditoría externa; no se presenta como listo para datos de alta sensibilidad.
 
 La clave guardada de un dispositivo vinculado nunca se sustituye por otra solo porque un anuncio de red use el mismo identificador. Si uno de los equipos perdió su clave, hay que desvincular el equipo anterior y vincularlo de nuevo. Para el primer vínculo en una red no confiable, usá QR: el emparejamiento por proximidad todavía requiere una verificación visual mutua para resistir a un intermediario activo. Un atacante que controle la red puede impedir o retransmitir conexiones, aunque no puede descifrar ni autenticar mensajes sin la clave del par.

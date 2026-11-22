@@ -9,6 +9,7 @@ import 'package:file_selector/file_selector.dart';
 
 import '../crypto_envelope.dart';
 import '../download_storage.dart';
+import '../file_stream.dart';
 
 const quickVersion = 1;
 const quickMaxBytes = 16 * 1024 * 1024 * 1024;
@@ -141,6 +142,7 @@ class _Session {
   int index = 0, offset = 0, pending = 0;
   DateTime expires = DateTime.now().add(const Duration(minutes: 3));
   File? part;
+  TransferFileWriter? writer;
   String? lastRequest;
   Map<String, dynamic>? lastReply;
   Future<void> work = Future.value();
@@ -366,12 +368,9 @@ class QuickReceiver {
         final root = await downloads.stagingDirectory;
         session.part = File('${root.path}/${file.name}.${quickRandom()}.part');
         await session.part!.create(exclusive: true);
+        session.writer = TransferFileWriter(session.part!);
       }
-      await session.part!.writeAsBytes(
-        bytes,
-        mode: FileMode.append,
-        flush: true,
-      );
+      await session.writer!.write(bytes);
       session.offset += bytes.length;
       final finishedFile = session.offset == file.size;
       final ack = await CryptoEnvelope.encryptJson(
@@ -384,6 +383,8 @@ class QuickReceiver {
         aad: 'quick-ack-v1:${session.id}:${session.index}:$offset',
       );
       if (finishedFile) {
+        await session.writer!.close(flush: true);
+        session.writer = null;
         final hash = await hashing.sha256.bind(session.part!.openRead()).first;
         if (hash.toString() != file.hash) {
           throw StateError('El archivo no coincide con el original.');
@@ -425,6 +426,8 @@ class QuickReceiver {
       onSessionState?.call(session.id, false);
     }
     session.closed = true;
+    await session.writer?.close();
+    session.writer = null;
     if (session.part != null && await session.part!.exists()) {
       await session.part!.delete();
     }
@@ -441,6 +444,7 @@ class QuickReceiver {
   Future<void> dispose() async {
     _timer?.cancel();
     for (final session in _sessions.values.toList()) {
+      await session.work;
       await _remove(session);
     }
   }
@@ -548,7 +552,7 @@ class QuickSender {
       for (var index = 0; index < sources.length; index++) {
         var offset = 0;
         final source = sources[index];
-        final reader = source.openRead();
+        final reader = fileChunks(source.openRead(), chunkSize);
         Future<void> chunk(List<int> bytes) async {
           _check();
           final body = <String, dynamic>{

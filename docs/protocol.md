@@ -25,7 +25,34 @@ La clave simétrica de 256 bits ya se guarda en el almacenamiento seguro de cada
 3. `POST /chunk`: el emisor envía bloques de hasta 128 KiB cifrados con nonce aleatorio. El identificador de transferencia y el desplazamiento se incluyen como datos autenticados adicionales. El receptor solo acepta el siguiente desplazamiento esperado.
 4. Al completar el tamaño anunciado, el receptor verifica SHA-256 y renombra el archivo temporal al nombre final. Si falla, borra el temporal.
 
-El cuerpo de cada mensaje es JSON; los bytes cifrados se codifican con base64url. Este formato simplifica la interoperabilidad inicial y añade sobrecarga de tamaño. Una versión futura puede transportar bloques binarios sin cambiar el modelo de emparejamiento.
+El cuerpo de los mensajes de control y del flujo anterior es JSON; los bytes cifrados se codifican con base64url.
+
+### Transmisión continua entre dispositivos vinculados (1.4.2)
+
+El emisor añade `fileStream: 1` dentro de la oferta cifrada. Si el receptor también lo
+admite, devuelve ese campo dentro de su decisión cifrada. La ausencia del campo
+conserva `/chunk` y sus límites originales: se puede actualizar cada equipo por
+separado, sin renovar vinculaciones. No se cambia la versión del emparejamiento.
+
+Tras la aceptación, `POST /file-stream?peer=<id>&transferId=<id>` transporta el
+archivo en una sola solicitud HTTP, con presión de retorno y memoria acotada.
+Cada registro contiene una longitud uint32 big-endian seguida de nonce de 12 bytes,
+etiqueta GCM de 16 bytes y texto cifrado. La longitud incluye esos 28 bytes, pero no
+el prefijo de cuatro. El máximo de texto claro por registro es 512 KiB. AES-256-GCM
+usa la clave del par y AAD UTF-8 `file-stream-v1:<transferId>:<offset>`.
+Los archivos vacíos llevan un registro autenticado de longitud 28.
+
+El receptor rechaza longitudes excesivas, contenido alterado, registros repetidos o
+fuera de orden, truncamientos y bytes posteriores al tamaño acordado. Solo admite
+un escritor por transferencia. Conserva abierto el archivo temporal y sincroniza y
+cierra su descriptor una vez al finalizar. Después verifica SHA-256, publica el
+archivo y responde con `{offset, hash}` cifrado con AAD
+`file-stream-ack-v1:<transferId>`. El emisor muestra éxito únicamente después de
+autenticar esa confirmación. La desvinculación invalida también un envío en curso.
+
+El flujo anterior `/chunk` y la recepción cercana conservan su protocolo de red,
+pero también reutilizan el descriptor y sincronizan al terminar. Se siguen usando
+archivos temporales y el archivo completo nunca se mantiene en memoria.
 
 ## Límites actuales
 

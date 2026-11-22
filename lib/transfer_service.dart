@@ -12,6 +12,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'download_storage.dart';
+import 'file_stream.dart';
 import 'pairing_password.dart';
 import 'crypto_envelope.dart';
 import 'sharing/quick_transfer.dart';
@@ -235,12 +236,24 @@ class TransferProgress {
 }
 
 class _IncomingFile {
-  _IncomingFile(this.peer, this.file, this.name, this.expectedHash, this.size);
+  _IncomingFile(
+    this.peer,
+    this.file,
+    this.name,
+    this.expectedHash,
+    this.size, {
+    required this.allowStream,
+  }) : writer = TransferFileWriter(file);
   final Peer peer;
   final File file;
   final String name;
   final String expectedHash;
   final int size;
+  final bool allowStream;
+  final TransferFileWriter writer;
+  Future<void> work = Future.value();
+  bool streaming = false;
+  int pending = 0;
   int offset = 0;
 }
 
@@ -818,6 +831,8 @@ class TransferService {
         .toList();
     for (final entry in incoming) {
       _incoming.remove(entry.key);
+      await entry.value.work;
+      await entry.value.writer.close();
       if (await entry.value.file.exists()) await entry.value.file.delete();
     }
     await _persistPeers();
@@ -1130,7 +1145,12 @@ class TransferService {
     final digest = await hashing.sha256.bind(file.openRead()).first;
     final name = _safeName(file.name);
     final offer = await CryptoEnvelope.encryptJson(
-      {'name': name, 'size': size, 'hash': digest.toString()},
+      {
+        'name': name,
+        'size': size,
+        'hash': digest.toString(),
+        'fileStream': fileStreamVersion,
+      },
       key,
       aad: 'offer-v1',
     );
@@ -1147,8 +1167,22 @@ class TransferService {
       throw StateError('El receptor rechazó el archivo.');
     }
     final transferId = decision['transferId'] as String;
+    if (decision['fileStream'] == fileStreamVersion) {
+      await _sendFileStream(
+        peer,
+        file,
+        key,
+        transferId,
+        size,
+        digest.toString(),
+      );
+      onProgress?.call(
+        TransferProgress(peer.name, name, size, size, false, true),
+      );
+      return;
+    }
     var offset = 0;
-    await for (final readChunk in file.openRead()) {
+    await for (final readChunk in fileChunks(file.openRead(), 128 * 1024)) {
       for (var start = 0; start < readChunk.length; start += 128 * 1024) {
         final end = min(start + 128 * 1024, readChunk.length);
         final chunk = readChunk.sublist(start, end);
@@ -1196,6 +1230,70 @@ class TransferService {
     );
   }
 
+  Future<void> _sendFileStream(
+    Peer peer,
+    XFile file,
+    String key,
+    String id,
+    int size,
+    String hash,
+  ) async {
+    final request = await _client
+        .postUrl(
+          Uri(
+            scheme: 'http',
+            host: peer.host,
+            port: peer.port,
+            path: '/file-stream',
+            queryParameters: {'peer': deviceId, 'transferId': id},
+          ),
+        )
+        .timeout(const Duration(seconds: 8));
+    request.headers.contentType = ContentType.binary;
+    request.bufferOutput = false;
+    try {
+      await request.addStream(
+        encryptFileStream(
+          file.openRead().map((bytes) {
+            if (_keys[peer.id] != key) {
+              throw StateError('El dispositivo fue desvinculado.');
+            }
+            return bytes;
+          }),
+          key: key,
+          transferId: id,
+          size: size,
+          onProgress: (offset) => onProgress?.call(
+            TransferProgress(
+              peer.name,
+              _safeName(file.name),
+              offset,
+              size,
+              false,
+              false,
+            ),
+          ),
+        ).timeout(const Duration(seconds: 60)),
+      );
+      final response = await request.close().timeout(
+        const Duration(minutes: 2),
+      );
+      final ack = await CryptoEnvelope.decryptJson(
+        await _readResponse(response, const Duration(minutes: 2)),
+        key,
+        aad: 'file-stream-ack-v1:$id',
+      );
+      if (_keys[peer.id] != key ||
+          ack['offset'] != size ||
+          ack['hash'] != hash) {
+        throw StateError('El receptor no confirmó el archivo completo.');
+      }
+    } catch (_) {
+      request.abort();
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> _postJson(
     String host,
     int port,
@@ -1206,8 +1304,17 @@ class TransferService {
     final url = Uri(scheme: 'http', host: host, port: port, path: path);
     final request = await _client.postUrl(url).timeout(timeout);
     request.headers.contentType = ContentType.json;
-    request.add(utf8.encode(jsonEncode(body)));
+    final payload = utf8.encode(jsonEncode(body));
+    request.contentLength = payload.length;
+    request.add(payload);
     final response = await request.close().timeout(timeout);
+    return _readResponse(response, timeout);
+  }
+
+  Future<Map<String, dynamic>> _readResponse(
+    HttpClientResponse response,
+    Duration timeout,
+  ) async {
     final bytes = await response
         .fold<BytesBuilder>(BytesBuilder(copy: false), (buffer, chunk) {
           if (buffer.length + chunk.length > maxMessageBytes) {
@@ -1240,8 +1347,12 @@ class TransferService {
       if (request.method != 'POST') {
         request.response.statusCode = HttpStatus.methodNotAllowed;
       } else {
-        final body = await _readJson(request);
-        final result = request.uri.path.startsWith('/quick/')
+        final body = request.uri.path == '/file-stream'
+            ? <String, dynamic>{}
+            : await _readJson(request);
+        final result = request.uri.path == '/file-stream'
+            ? await _handleFileStream(request)
+            : request.uri.path.startsWith('/quick/')
             ? await quick.handle(request.uri.path, body)
             : switch (request.uri.path) {
                 '/pair' => await _handlePair(body, request),
@@ -1263,9 +1374,7 @@ class TransferService {
               };
         request.response.headers.contentType = ContentType.json;
         final payload = jsonEncode(result);
-        if (request.uri.path.startsWith('/quick/')) {
-          request.response.contentLength = utf8.encode(payload).length;
-        }
+        request.response.contentLength = utf8.encode(payload).length;
         request.response.write(payload);
       }
     } catch (error) {
@@ -1570,9 +1679,21 @@ class TransferService {
     final id = _randomUrlSafe(16);
     final part = File('${destination.path}.$id.part');
     await part.create();
-    _incoming[id] = _IncomingFile(peer, part, name, hash, size);
+    final allowStream = data['fileStream'] == fileStreamVersion;
+    _incoming[id] = _IncomingFile(
+      peer,
+      part,
+      name,
+      hash,
+      size,
+      allowStream: allowStream,
+    );
     return CryptoEnvelope.encryptJson(
-      {'accepted': true, 'transferId': id},
+      {
+        'accepted': true,
+        'transferId': id,
+        if (allowStream) 'fileStream': fileStreamVersion,
+      },
       key,
       aad: 'offer-response-v1',
     );
@@ -1584,38 +1705,148 @@ class TransferService {
     if (transfer == null || transfer.peer.id != body['peer']) {
       throw StateError('Transferencia desconocida.');
     }
+    if (transfer.streaming || transfer.pending >= 4) {
+      throw StateError('La transferencia ya está en curso.');
+    }
+    transfer.pending++;
+    final result = transfer.work
+        .then((_) => _writeLegacyChunk(id, transfer, body))
+        .whenComplete(() => transfer.pending--);
+    transfer.work = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  void _checkIncoming(String id, _IncomingFile transfer, String key) {
+    if (_keys[transfer.peer.id] != key || !identical(_incoming[id], transfer)) {
+      throw StateError('El dispositivo fue desvinculado.');
+    }
+  }
+
+  Future<void> _finishIncoming(
+    String id,
+    _IncomingFile transfer,
+    String key,
+  ) async {
+    await transfer.writer.close(flush: true);
+    final digest = await hashing.sha256.bind(transfer.file.openRead()).first;
+    if (digest.toString() != transfer.expectedHash) {
+      throw StateError('El archivo recibido no coincide con el original.');
+    }
+    _checkIncoming(id, transfer, key);
+    await downloads.publish(transfer.file, transfer.name);
+    _incoming.remove(id);
+  }
+
+  Future<void> _discardIncoming(String id, _IncomingFile transfer) async {
+    _incoming.remove(id);
+    await transfer.writer.close();
+    if (await transfer.file.exists()) await transfer.file.delete();
+  }
+
+  Future<Map<String, Object?>> _handleFileStream(HttpRequest request) async {
+    final id = request.uri.queryParameters['transferId'];
+    final transfer = _incoming[id];
+    if (id == null ||
+        transfer == null ||
+        !transfer.allowStream ||
+        transfer.peer.id != request.uri.queryParameters['peer'] ||
+        transfer.streaming ||
+        transfer.pending != 0 ||
+        transfer.offset != 0) {
+      throw StateError('Transferencia desconocida o ya iniciada.');
+    }
+    final key = _keys[transfer.peer.id]!;
+    transfer.streaming = true;
+    final result = _receiveFileStream(request, id, transfer, key);
+    transfer.work = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  Future<Map<String, Object?>> _receiveFileStream(
+    HttpRequest request,
+    String id,
+    _IncomingFile transfer,
+    String key,
+  ) async {
+    try {
+      await for (final bytes in decryptFileStream(
+        request.timeout(const Duration(seconds: 60)),
+        key: key,
+        transferId: id,
+        size: transfer.size,
+      )) {
+        _checkIncoming(id, transfer, key);
+        await transfer.writer.write(bytes);
+        _checkIncoming(id, transfer, key);
+        transfer.offset += bytes.length;
+        onProgress?.call(
+          TransferProgress(
+            transfer.peer.name,
+            transfer.name,
+            transfer.offset,
+            transfer.size,
+            true,
+            false,
+          ),
+        );
+      }
+      await _finishIncoming(id, transfer, key);
+      final ack = await CryptoEnvelope.encryptJson(
+        {'offset': transfer.offset, 'hash': transfer.expectedHash},
+        key,
+        aad: 'file-stream-ack-v1:$id',
+      );
+      onProgress?.call(
+        TransferProgress(
+          transfer.peer.name,
+          transfer.name,
+          transfer.offset,
+          transfer.size,
+          true,
+          true,
+        ),
+      );
+      return ack;
+    } catch (error) {
+      await _discardIncoming(id, transfer);
+      onTransferError?.call('No se pudo recibir “${transfer.name}”: $error');
+      rethrow;
+    }
+  }
+
+  Future<Map<String, Object?>> _writeLegacyChunk(
+    String id,
+    _IncomingFile transfer,
+    Map<String, dynamic> body,
+  ) async {
     final offset = body['offset'] as int;
     if (offset != transfer.offset) throw StateError('Bloque fuera de orden.');
-    final key = _keys[transfer.peer.id]!;
+    final key = _keys[transfer.peer.id];
+    if (key == null) throw StateError('El dispositivo fue desvinculado.');
+    _checkIncoming(id, transfer, key);
     final bytes = await CryptoEnvelope.decrypt(
       (body['box'] as Map).cast<String, dynamic>(),
       key,
       aad: '$id:$offset',
     );
-    if (bytes.length > 128 * 1024 || offset + bytes.length > transfer.size) {
+    if (bytes.length > 128 * 1024 ||
+        offset + bytes.length > transfer.size ||
+        (bytes.isEmpty && transfer.size != 0)) {
       throw const FormatException('Bloque inválido.');
     }
-    if (_keys[transfer.peer.id] != key || !_incoming.containsKey(id)) {
-      throw StateError('El dispositivo fue desvinculado.');
-    }
+    _checkIncoming(id, transfer, key);
     try {
-      await transfer.file.writeAsBytes(
-        bytes,
-        mode: FileMode.append,
-        flush: true,
-      );
+      await transfer.writer.write(bytes);
+      _checkIncoming(id, transfer, key);
       transfer.offset += bytes.length;
       if (transfer.offset == transfer.size) {
-        final digest = await hashing.sha256
-            .bind(transfer.file.openRead())
-            .first;
-        if (digest.toString() != transfer.expectedHash) {
-          await transfer.file.delete();
-          _incoming.remove(id);
-          throw StateError('El archivo recibido no coincide con el original.');
-        }
-        await downloads.publish(transfer.file, transfer.name);
-        _incoming.remove(id);
+        await _finishIncoming(id, transfer, key);
       }
       onProgress?.call(
         TransferProgress(
@@ -1629,7 +1860,7 @@ class TransferService {
       );
       return {'offset': transfer.offset};
     } catch (error) {
-      _incoming.remove(id);
+      await _discardIncoming(id, transfer);
       onTransferError?.call('No se pudo recibir “${transfer.name}”: $error');
       rethrow;
     }
@@ -1662,5 +1893,12 @@ class TransferService {
     await _quickReceiver?.dispose();
     _client.close(force: true);
     await _server?.close(force: true);
+    final incoming = _incoming.entries.toList();
+    _incoming.clear();
+    for (final entry in incoming) {
+      await entry.value.work;
+      await entry.value.writer.close();
+      if (await entry.value.file.exists()) await entry.value.file.delete();
+    }
   }
 }

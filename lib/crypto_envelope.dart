@@ -10,6 +10,42 @@ List<int> _decode64(String value) =>
 class CryptoEnvelope {
   static final _cipher = AesGcm.with256bits();
 
+  static Future<Uint8List> encryptBinary(
+    List<int> bytes,
+    String key, {
+    required String aad,
+  }) async {
+    final box = await _cipher.encrypt(
+      bytes,
+      secretKey: SecretKey(_decode64(key)),
+      aad: utf8.encode(aad),
+    );
+    return Uint8List.fromList([
+      ...box.nonce,
+      ...box.mac.bytes,
+      ...box.cipherText,
+    ]);
+  }
+
+  static Future<Uint8List> decryptBinary(
+    Uint8List bytes,
+    String key, {
+    required String aad,
+  }) async {
+    if (bytes.length < 28) throw const FormatException('Bloque inválido.');
+    return Uint8List.fromList(
+      await _cipher.decrypt(
+        SecretBox(
+          Uint8List.sublistView(bytes, 28),
+          nonce: Uint8List.sublistView(bytes, 0, 12),
+          mac: Mac(Uint8List.sublistView(bytes, 12, 28)),
+        ),
+        secretKey: SecretKey(_decode64(key)),
+        aad: utf8.encode(aad),
+      ),
+    );
+  }
+
   static Future<Map<String, String>> encrypt(
     List<int> bytes,
     String key, {

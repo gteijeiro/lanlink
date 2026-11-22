@@ -3,10 +3,14 @@ name: Windows portable x64
 on:
   workflow_dispatch:
   push:
-    branches: ['build/windows-x64-portable-*']
+    branches: ['build/windows-x64-portable-*', 'release/desktop-*']
     paths:
       - '.github/workflows/windows-portable.yml'
       - 'scripts/package_windows_portable.ps1'
+      - 'lib/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
 
 permissions:
   contents: read
